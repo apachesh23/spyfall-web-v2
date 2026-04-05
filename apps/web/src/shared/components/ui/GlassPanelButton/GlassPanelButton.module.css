@@ -1,0 +1,35 @@
+.button {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  background: transparent;
+  color: rgba(248, 250, 252, 0.96);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  font-family: var(--font-tektur), Tektur, monospace;
+  cursor: var(--cursor-spy-pointer);
+  text-align: left;
+  padding: 0 14px;
+}
+
+.sizeMd {
+  height: 60px;
+  min-height: 60px;
+  border-radius: 0.6em;
+}
+
+.sizeSm {
+  height: 52px;
+  min-height: 52px;
+  border-radius: 0.5em;
+}
+
+.alignStart {
+  justify-content: flex-start;
+}
+
+.alignCenter {
+  justify-content: center;
+  text-align: center;
+}

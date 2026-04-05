@@ -1,0 +1,15 @@
+{
+  "name": "spyfall-game-v2",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "concurrently -k -n web,game -c cyan,magenta \"npm run dev --workspace=@spyfall/web\" \"npm run dev --workspace=@spyfall/game-server\"",
+    "dev:web": "npm run dev --workspace=@spyfall/web",
+    "dev:server": "npm run dev --workspace=@spyfall/game-server",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

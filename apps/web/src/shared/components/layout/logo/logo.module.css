@@ -1,0 +1,22 @@
+.logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15em;
+  color: #fff;
+  font-weight: bold;
+  letter-spacing: 0.2em;
+  user-select: none;
+  font-family: var(--font-tektur), Tektur, monospace;
+  height: clamp(28px, 7.1875vw, 46px);
+  font-size: clamp(22px, 6.09375vw, 39px);
+}
+
+.logoDuck {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(30px, 7.96875vw, 51px);
+  height: clamp(30px, 7.96875vw, 51px);
+}

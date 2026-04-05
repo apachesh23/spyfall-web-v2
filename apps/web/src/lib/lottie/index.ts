@@ -1,0 +1,1 @@
+export { LottieIcon } from './LottieIcon';

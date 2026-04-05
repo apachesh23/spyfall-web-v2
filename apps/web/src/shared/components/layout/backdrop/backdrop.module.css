@@ -1,0 +1,117 @@
+/* Полноэкранный фон: видео или тайл + общие оверлеи */
+.root {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  height: 100dvh;
+}
+
+.fillLayer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
+@media (display-mode: standalone) {
+  .fillLayer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+  }
+}
+
+.tileLayer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background-image: url("/tile-bg.webp");
+  background-repeat: repeat;
+  background-size: 500px;
+}
+
+.tileDarkOverlay {
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background-color: rgba(71, 9, 9, 0.3);
+}
+
+.videoFill {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.scrim {
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+}
+
+.content {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: calc(20px + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(20px + env(safe-area-inset-left, 0px));
+  height: 100dvh;
+  box-sizing: border-box;
+}
+
+/* Резерв под «Поверните устройство» (если подключите оверлей) */
+.rotateOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.rotateContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.rotateIcon {
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+.rotateText {
+  opacity: 0;
+  margin: 0;
+  padding: 0 24px;
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.95);
+  text-align: center;
+  font-family: var(--font-tektur), Tektur, monospace;
+}
