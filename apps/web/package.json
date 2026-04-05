@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@colyseus/schema": "2.0.37",
     "@spyfall/shared": "*",
     "@supabase/supabase-js": "^2.49.1",
     "@tabler/icons-react": "^3.36.1",

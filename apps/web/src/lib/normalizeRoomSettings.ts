@@ -7,6 +7,7 @@ import type { Settings } from "@/types";
 export function normalizeRoomSettings(raw: unknown): Settings {
   const s = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   return {
+    colyseus_room_id: typeof s.colyseus_room_id === "string" ? s.colyseus_room_id : undefined,
     game_duration: typeof s.game_duration === "number" ? s.game_duration : 15,
     vote_duration: typeof s.vote_duration === "number" ? s.vote_duration : 1,
     spy_count: typeof s.spy_count === "number" ? Math.max(1, Math.min(3, s.spy_count)) : 1,

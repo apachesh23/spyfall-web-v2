@@ -1,6 +1,51 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import styles from "./backdrop.module.css";
+
+const VIDEO_POSTER = "/videos/background-poster.webp";
+const VIDEO_SRC = "/videos/background.webm";
+
+/**
+ * Видео только после mount: иначе SSR даёт другие пропсы `<video>` (напр. disablePictureInPicture),
+ * плюс расширения вроде «Picture-in-Picture everywhere» вставляют DOM и ломают гидратацию.
+ */
+function ClientMountVideoBackdrop() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    setReady(true);
+  }, []);
+
+  if (!ready) {
+    return (
+      <div
+        className={styles.videoFill}
+        aria-hidden
+        style={{
+          backgroundImage: `url(${VIDEO_POSTER})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+      />
+    );
+  }
+
+  return (
+    <video
+      autoPlay
+      muted
+      loop
+      playsInline
+      preload="metadata"
+      className={styles.videoFill}
+      aria-hidden
+      poster={VIDEO_POSTER}
+      disablePictureInPicture={true}
+    >
+      <source src={VIDEO_SRC} type="video/webm" />
+    </video>
+  );
+}
 
 export type BackdropProps = {
   children: React.ReactNode;
@@ -23,19 +68,7 @@ export function Backdrop({
             <div className={styles.tileDarkOverlay} aria-hidden />
           </>
         ) : (
-          <video
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            className={styles.videoFill}
-            aria-hidden
-            poster="/videos/background-poster.webp"
-            disablePictureInPicture
-          >
-            <source src="/videos/background.webm" type="video/webm" />
-          </video>
+          <ClientMountVideoBackdrop />
         )}
 
         <div className={styles.scrim} aria-hidden />

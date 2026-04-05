@@ -9,7 +9,8 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@spyfall/shared": "*",
+    "@colyseus/core": "^0.15.57",
+    "@colyseus/schema": "2.0.37",
     "colyseus": "^0.15.57",
     "express": "^4.21.2"
   },

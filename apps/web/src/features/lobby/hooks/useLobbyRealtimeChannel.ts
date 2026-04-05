@@ -130,19 +130,6 @@ export function useLobbyRealtimeChannel({
         }
 
         if (newRoom.status === "playing" && oldRoom.status !== "playing") {
-          const hasStartSplash =
-            (newRoom.splash_event as SplashEventPayload | null)?.type === "system_start";
-          if (!hasStartSplash) {
-            useRouteLoaderStore.getState().start();
-            router.push(`/play/${code}`);
-          }
-        }
-
-        if (
-          newRoom.status === "playing" &&
-          (oldRoom.splash_event as SplashEventPayload | null)?.type === "system_start" &&
-          !newRoom.splash_event
-        ) {
           useRouteLoaderStore.getState().start();
           router.push(`/play/${code}`);
         }

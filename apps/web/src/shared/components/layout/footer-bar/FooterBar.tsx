@@ -191,7 +191,7 @@ export function FooterBar({
                   soundClick="click"
                   soundHover="hover"
                 >
-                  {lobby.startingGame ? "Запуск..." : "СТАРТ ИГРЫ"}
+                  {lobby.startingGame ? "КНОПКА НАЖАТА…" : "СТАРТ ИГРЫ"}
                 </PrimaryButton>
               </div>
               <div className={styles.hostPanelList}>

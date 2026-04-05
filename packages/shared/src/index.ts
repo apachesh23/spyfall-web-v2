@@ -1,3 +1,5 @@
+export { GameState, MatchPlayerState } from "./colyseus/gameState";
+
 export const GAME_NAME = "Spyfall";
 
 /** Colyseus room name clients join after host starts a match */
@@ -8,9 +10,24 @@ export const MATCH_PHASES = [
   "discussion",
   "voting",
   "resolution",
+  "ended",
 ] as const;
 
 export type MatchPhase = (typeof MATCH_PHASES)[number];
+
+/** Default main discussion length when the client does not pass a duration (15 min). */
+export const DEFAULT_DISCUSSION_DURATION_MS = 15 * 60 * 1000;
+
+/**
+ * Options for `joinOrCreate` / `create` — must match across clients so Colyseus routes them into the same room.
+ * `matchSessionId` should be the Supabase `match_sessions.id` once you add it; until then use a stable stub per match.
+ */
+export type MatchJoinOptions = {
+  matchSessionId: string;
+  playerId: string;
+  nickname: string;
+  discussionDurationMs?: number;
+};
 
 /** Client → server message types (string payloads for a minimal template) */
 export const WS_CLIENT_MESSAGE = {

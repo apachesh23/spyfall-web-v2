@@ -12,6 +12,8 @@ export type SplashEventPayload = {
 };
 
 export type Settings = {
+  /** Заполняется при старте матча; все клиенты делают joinById в одну Colyseus-комнату (без гонки joinOrCreate). */
+  colyseus_room_id?: string;
   spy_count: number; // 1 | 2 | 3 — фиксированное или макс. при хаосе
   game_duration: number;
   vote_duration: number;

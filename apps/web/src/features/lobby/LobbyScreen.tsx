@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { AnimatePresence } from "framer-motion";
 import type { Settings } from "@/types";
 import { useLobbyData } from "@/features/lobby/hooks/useLobbyData";
 import { useLobbyRealtimeChannel } from "@/features/lobby/hooks/useLobbyRealtimeChannel";
@@ -20,7 +19,6 @@ import {
   PrimaryButton,
 } from "@/shared/components/ui";
 import { FullscreenLoader } from "@/shared/components/layout/route-loader/FullscreenLoader";
-import { SplashScreen, type SplashType } from "@/features/splash-screen";
 import { SplashScreenDevPanel } from "@/features/splash-screen";
 import { useRouteLoaderStore } from "@/store/route-loader-store";
 import { IconTrash } from "@tabler/icons-react";
@@ -61,31 +59,12 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
   const router = useRouter();
   const stopGlobalLoader = useRouteLoaderStore((s) => s.stop);
 
-  const getStartSplashRemainingSec = useCallback(() => {
-    if (splashEvent?.type !== "system_start") return 0;
-    if (splashEvent.ends_at) {
-      const diffSec = Math.floor(
-        (new Date(splashEvent.ends_at).getTime() - Date.now()) / 1000,
-      );
-      return diffSec > 0 ? diffSec : 0;
-    }
-    const totalSec = splashEvent.countdownSeconds ?? 5;
-    const elapsedSec = Math.floor(
-      (Date.now() - new Date(splashEvent.at).getTime()) / 1000,
-    );
-    const remaining = totalSec - (elapsedSec < 0 ? 0 : elapsedSec);
-    return remaining > 0 ? remaining : 0;
-  }, [splashEvent]);
-
-  const startSplashActive =
-    splashEvent?.type === "system_start" && getStartSplashRemainingSec() > 0;
-
   useEffect(() => {
     if (loading || error || !roomStatus) return;
-    if (roomStatus === "playing" && !startSplashActive) {
+    if (roomStatus === "playing") {
       router.replace(`/play/${code}`);
     }
-  }, [loading, error, roomStatus, startSplashActive, code, router]);
+  }, [loading, error, roomStatus, code, router]);
 
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -115,10 +94,10 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
 
   useEffect(() => {
     if (!startingGame) return;
-    if (startSplashActive) return;
-    if (roomStatus === "playing") return;
-    setStartingGame(false);
-  }, [startingGame, startSplashActive, roomStatus]);
+    if (roomStatus === "playing") {
+      setStartingGame(false);
+    }
+  }, [startingGame, roomStatus]);
 
   async function triggerSplash(
     type:
@@ -314,8 +293,6 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
 
     setStartingGame(true);
     try {
-      await triggerSplash("system_start", { countdownSeconds: 5 });
-
       const response = await fetch("/api/game/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -345,22 +322,6 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
 
   return (
     <>
-      <AnimatePresence mode="wait">
-        {startSplashActive ? (
-          <SplashScreen
-            key="system_start"
-            type={"system_start" as SplashType}
-            onClose={() => {
-              dismissSplash();
-            }}
-            countdownSeconds={splashEvent.countdownSeconds ?? 5}
-            countdownLabel={splashEvent.countdownLabel}
-            eventAt={splashEvent.at}
-            endsAt={splashEvent.ends_at}
-            players={players}
-          />
-        ) : null}
-      </AnimatePresence>
       <div style={{ display: "none" }} aria-hidden>
         <SplashScreenDevPanel
           splashEvent={splashEvent}
@@ -437,7 +398,7 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
                       soundClick="click"
                       soundHover="hover"
                     >
-                      {startingGame ? "Запуск..." : "СТАРТ ИГРЫ"}
+                      {startingGame ? "КНОПКА НАЖАТА…" : "СТАРТ ИГРЫ"}
                     </PrimaryButton>
                     <DangerButton
                       variant="icon"
