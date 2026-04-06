@@ -42,6 +42,10 @@ export async function POST(request: Request) {
     if (room.settings && typeof room.settings === "object" && !Array.isArray(room.settings)) {
       const next = { ...(room.settings as Record<string, unknown>) };
       delete next.colyseus_room_id;
+      delete next.match_display_theme;
+      delete next.match_display_roles;
+      delete next.match_theme_snapshot;
+      delete next.match_debug;
       updatePayload.settings = next;
     }
 

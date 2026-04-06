@@ -14,6 +14,13 @@ export type SplashEventPayload = {
 export type Settings = {
   /** Заполняется при старте матча; все клиенты делают joinById в одну Colyseus-комнату (без гонки joinOrCreate). */
   colyseus_room_id?: string;
+  /** Снимок лобби на момент старта — для экрана матча, пока идёт игра. */
+  match_display_theme?: boolean;
+  match_display_roles?: boolean;
+  /** Текст темы на момент старта (дубль Colyseus, если снапшот состояния не подтянулся). */
+  match_theme_snapshot?: string;
+  /** Ведущий стартовал матч с отладкой — клиенты редиректят на `/play/...?matchDebug=1`. Сбрасывается при завершении матча. */
+  match_debug?: boolean;
   spy_count: number; // 1 | 2 | 3 — фиксированное или макс. при хаосе
   game_duration: number;
   vote_duration: number;

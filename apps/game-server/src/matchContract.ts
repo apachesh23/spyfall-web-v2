@@ -16,3 +16,7 @@ export type MatchJoinOptions = {
 export const WS_CLIENT_MESSAGE = {
   ping: "ping",
 } as const;
+
+export const WS_SERVER_MESSAGE = {
+  matchAssignment: "matchAssignment",
+} as const;

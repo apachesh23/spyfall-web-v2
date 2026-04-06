@@ -33,3 +33,15 @@ export type MatchJoinOptions = {
 export const WS_CLIENT_MESSAGE = {
   ping: "ping",
 } as const;
+
+/** Server → client: тема/роли для карточки (дубль state, если декод Schema на клиенте глючит). */
+export const WS_SERVER_MESSAGE = {
+  matchAssignment: "matchAssignment",
+} as const;
+
+export type MatchAssignmentPayload = {
+  themeText: string;
+  modeTheme: boolean;
+  modeRole: boolean;
+  roleAtLocation: string;
+};

@@ -131,7 +131,12 @@ export function useLobbyRealtimeChannel({
 
         if (newRoom.status === "playing" && oldRoom.status !== "playing") {
           useRouteLoaderStore.getState().start();
-          router.push(`/play/${code}`);
+          const rs = newRoom.settings;
+          const raw =
+            rs && typeof rs === "object" && !Array.isArray(rs) ? (rs as Record<string, unknown>) : {};
+          const debug =
+            raw.match_debug === true || raw.match_debug === "true" || raw.match_debug === 1;
+          router.push(`/play/${code}${debug ? "?matchDebug=1" : ""}`);
         }
       },
     );

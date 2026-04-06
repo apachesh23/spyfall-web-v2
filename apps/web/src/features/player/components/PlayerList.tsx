@@ -37,6 +37,8 @@ type PlayerListProps = {
   eliminatedPlayerIds?: Set<string>;
   /** Лобби: компактный список с ≤1024px; игра: сетка игры переключается на ≤1270px. */
   layout?: 'lobby' | 'game';
+  /** В матче без пустых слотов «минимум 3». */
+  hideMinPlaceholders?: boolean;
 };
 
 export function PlayerList({
@@ -48,6 +50,7 @@ export function PlayerList({
   kickingPlayerId,
   eliminatedPlayerIds,
   layout = 'lobby',
+  hideMinPlaceholders = false,
 }: PlayerListProps) {
   const reactions = useReactions();
   const activeReactions = reactions?.activeReactions ?? [];
@@ -56,7 +59,9 @@ export function PlayerList({
   const prevReactionIdsRef = useRef<Set<string>>(new Set());
 
   const minPlayers = 3;
-  const placeholdersNeeded = Math.max(0, minPlayers - players.length);
+  const placeholdersNeeded = hideMinPlaceholders
+    ? 0
+    : Math.max(0, minPlayers - players.length);
 
   // На мобилке при новой реакции скроллим только список игроков (не всю страницу)
   useEffect(() => {

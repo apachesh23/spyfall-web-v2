@@ -62,9 +62,10 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
   useEffect(() => {
     if (loading || error || !roomStatus) return;
     if (roomStatus === "playing") {
-      router.replace(`/play/${code}`);
+      const q = settings?.match_debug === true ? "?matchDebug=1" : "";
+      router.replace(`/play/${code}${q}`);
     }
-  }, [loading, error, roomStatus, code, router]);
+  }, [loading, error, roomStatus, code, router, settings?.match_debug]);
 
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -199,10 +200,10 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
     if (playerId) performKick(playerId);
   }
 
-  async function saveSettings(settingsToSave?: Settings) {
-    if (!roomId || !currentPlayerId) return;
+  async function saveSettings(settingsToSave?: Settings): Promise<boolean> {
+    if (!roomId || !currentPlayerId) return false;
     let payload = settingsToSave ?? settings;
-    if (!payload) return;
+    if (!payload) return false;
 
     const multiSpyOn = payload.mode_multi_spy && players.length >= 7;
     payload = {
@@ -220,10 +221,13 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
       const res = await response.json();
       if (!response.ok) {
         alert(res.error || "Ошибка");
+        return false;
       }
+      return true;
     } catch (err) {
       console.error(err);
       alert("Ошибка");
+      return false;
     }
   }
 
@@ -234,7 +238,7 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
       if (pendingSettingsRef.current) {
-        saveSettings(pendingSettingsRef.current);
+        void saveSettings(pendingSettingsRef.current);
         pendingSettingsRef.current = null;
       }
       saveTimeoutRef.current = null;
@@ -283,7 +287,7 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
     }
   }
 
-  async function startGame() {
+  async function startGame(opts?: { matchDebug?: boolean }) {
     if (!roomId || !currentPlayerId) return;
 
     if (players.length < 3) {
@@ -293,10 +297,29 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
 
     setStartingGame(true);
     try {
+      // Дебаунс сохранения настроек 400ms: иначе в БД остаются старые mode_theme/mode_roles.
+      if (isHost) {
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+          saveTimeoutRef.current = null;
+        }
+        const latest = pendingSettingsRef.current ?? settings;
+        pendingSettingsRef.current = null;
+        const saved = await saveSettings(latest);
+        if (!saved) {
+          setStartingGame(false);
+          return;
+        }
+      }
+
       const response = await fetch("/api/game/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomId, hostId: currentPlayerId }),
+        body: JSON.stringify({
+          roomId,
+          hostId: currentPlayerId,
+          matchDebug: opts?.matchDebug === true,
+        }),
       });
 
       const data = await response.json();
@@ -347,6 +370,17 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
         }}
       >
         <div className={styles.pageWithFooter}>
+          {isHost ? (
+            <div style={{ margin: "0 0 0.35rem" }}>
+              <button
+                type="button"
+                disabled={startingGame || players.length < 3}
+                onClick={() => void startGame({ matchDebug: true })}
+              >
+                Старт с ?matchDebug=1
+              </button>
+            </div>
+          ) : null}
           <div className={styles.contentGrid}>
             <div className={styles.leftCol}>
               <div className={`glass ${styles.glassBlock}`}>
@@ -394,7 +428,7 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
                       disabled={startingGame || players.length < 3}
                       loading={startingGame}
                       lottieIcon="/lottie/rocet.json"
-                      onClick={startGame}
+                      onClick={() => void startGame()}
                       soundClick="click"
                       soundHover="hover"
                     >

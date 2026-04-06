@@ -1,0 +1,106 @@
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  border-radius: 0.6em;
+  padding: 1rem 1.25rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.panelTitle {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin: 0 0 0.25rem;
+}
+
+.phase {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.locationImg {
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: 0.5em;
+  margin-bottom: 0.75rem;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.locationName {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  color: var(--foreground);
+}
+
+.themeLine,
+.roleLine {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--text-body);
+}
+
+.themeLine strong,
+.roleLine strong {
+  color: var(--text-strong);
+}
+
+.spyBadge {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.35em;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.playerListWrap {
+  max-height: 420px;
+  overflow: auto;
+}
+
+.muted {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.devNote {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.devPre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.75rem;
+  max-height: 22rem;
+  overflow: auto;
+}
