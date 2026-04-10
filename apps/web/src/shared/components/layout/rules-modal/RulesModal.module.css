@@ -577,6 +577,130 @@
   color: rgba(255, 255, 255, 0.84);
 }
 
+/* Превью бара «УГАДАЛ / НЕТ» во вкладке «Шпион» */
+.voteBarWrap {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.voteBarHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  font-family: var(--font-tektur), Tektur, monospace;
+}
+
+.voteStat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.voteStatYes {
+  align-items: flex-start;
+  color: var(--accent-color, #f7c431);
+}
+
+.voteStatNo {
+  align-items: flex-end;
+  color: #ef4444;
+}
+
+.statLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  opacity: 0.8;
+}
+
+.statPercent {
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 0 12px currentColor;
+}
+
+.voteBarTrack {
+  width: 100%;
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+  display: flex;
+  flex-direction: row;
+}
+
+.voteBarFill {
+  height: 100%;
+  transition: width 0.35s ease-out;
+  box-sizing: border-box;
+}
+
+.voteBarFillYes {
+  background: linear-gradient(90deg, #f7c431, #fde047);
+  box-shadow: 0 0 10px rgba(247, 196, 49, 0.6);
+  border-right: 3px solid #1a1918;
+}
+
+.voteBarFillNo {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+}
+
+.voteActions {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+  flex-shrink: 0;
+}
+
+.voteBtn {
+  flex: 1;
+  min-width: 0;
+  height: 60px;
+  padding: 0 16px;
+  border-radius: 0.6em;
+  font-family: var(--font-tektur), Tektur, monospace;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: var(--cursor-spy-pointer, pointer);
+  transition: filter 0.15s, transform 0.1s ease-out, box-shadow 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.voteBtnYes {
+  background-color: #f7c431;
+  color: #734517;
+  border: 2px solid #eee350;
+  box-shadow: 0 0 8px #f7c431;
+}
+
+.voteBtnYes:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: 0 0 14px #f7c431;
+}
+
+.voteBtnNo {
+  color: #fff;
+}
+
+.voteBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .closeRow {
   margin-top: 10px;
 }

@@ -111,7 +111,11 @@ export const MUSIC_TRACKS = {
 
 export type MusicTrackId = keyof typeof MUSIC_TRACKS;
 
-/** Плейлисты по контекстам экранов. vote — только во время сбора голосов (таймер тикает). */
+/**
+ * Плейлисты по контекстам экранов.
+ * На /play vote1/vote2 переключаются вручную в player: раунд 1 (collect1 + intermission* кроме revote_no_vote) = vote1;
+ * раунд 2 (collect2 + intermission_revote_no_vote) = vote2; VS и прочие паузы — та же дорожка, что и у раунда.
+ */
 export const MUSIC_PLAYLISTS = {
   auth: ['auth1'] as const,
   lobby: ['lobby1', 'lobby2'] as const,

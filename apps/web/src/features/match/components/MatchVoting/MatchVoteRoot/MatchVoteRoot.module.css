@@ -1,0 +1,262 @@
+/**
+ * Корень MatchVoteRoot: слой декора под dim, затем затемнение, затем контент и полоски.
+ */
+
+.overlayRoot {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+}
+
+/* Фаза revote: карточки въезжают с ±vw за пределами колонки — не обрезаем оверлей. */
+.overlayRootRevoteCardsBleed {
+  overflow: visible;
+}
+
+.backdropDecor {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* Исходник 2000×920. До ширины вьюпорта 1400 — пропорционально; от 1400 — ширина 100%, высота как при 1400 без искажения (920×1400/2000), дальше растяжение по X. */
+.backdropDecorImg {
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  display: block;
+}
+
+@media (min-width: 1400px) {
+  .backdropDecorImg {
+    height: 644px;
+    object-fit: fill;
+  }
+}
+
+/* Lottie вместо decor-stipe: весь `.backdropDecor` + CSS scale (`max/BASE_PX`, контейнер `COMPOSITION_PX`). */
+.backdropDecorLottieWrap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/*
+ * Квадрат `COMPOSITION_PX` центрируем; `scale` задаётся из `BASE_PX` + bleed в TS.
+ * --mv-no-vote-lottie-cover-scale задаётся в MatchVoteRoot (useLayoutEffect).
+ */
+.backdropDecorLottieCoverScaler {
+  --mv-no-vote-lottie-cover-scale: 6;
+  --mv-no-vote-lottie-offset-y: 0px;
+
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, calc(-50% + var(--mv-no-vote-lottie-offset-y)))
+    scale(var(--mv-no-vote-lottie-cover-scale));
+  transform-origin: center center;
+  pointer-events: none;
+}
+
+.backdropDecorLottie {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * Затемнение в два тона: левая половина экрана — тёмно-красный, правая — тёмно-синий.
+ * Цвета можно подкрутить через переменные на `.backdropDim`.
+ */
+.backdropDim {
+  --match-vote-dim-left: rgba(26, 8, 12, 0.82);
+  --match-vote-dim-right: rgba(8, 12, 28, 0.82);
+
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: row;
+  pointer-events: auto;
+}
+
+.backdropDimHalfLeft,
+.backdropDimHalfRight {
+  flex: 1 1 50%;
+  width: 50%;
+  min-width: 0;
+}
+
+.backdropDimHalfLeft {
+  background: var(--match-vote-dim-left);
+}
+
+.backdropDimHalfRight {
+  background: var(--match-vote-dim-right);
+}
+
+/* Обычное / «не состоялось» — одно тёмное стекло, без красно-синего сплита. */
+.backdropDimUniform {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.75);
+}
+
+/* Фаза revote: затемнение + VS вращаются вокруг центра экрана одним слоем. */
+.revoteRotateLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  transform-origin: 50% 50%;
+  pointer-events: none;
+}
+
+/*
+ * Квадрат больше вьюпорта — при повороте половины всё ещё закрывают углы экрана.
+ * Размер задаётся `rotation.dimCoverVmax` в конфиге (`vmax` = большая сторона вьюпорта).
+ */
+.revoteRotateDimExpand {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.revoteRotateDimExpand .backdropDim {
+  pointer-events: auto;
+  z-index: 0;
+}
+
+.revoteRotateLayerVsSlot {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.innerAboveDim {
+  position: relative;
+  z-index: 2;
+}
+
+/* Растягиваем фазу на высоту `.center` (фаза revote / VS). */
+.centerPhaseMotion {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/*
+ * Голосование / no_vote: не растягиваемся на всю высоту `.center` — тогда
+ * `justify-content: center` у `.center` визуально центрирует блок; при переполнении
+ * сжимаемся по `max-height: 100%`, прокрутка остаётся в `.votingList`.
+ */
+.centerPhaseMotionBallot {
+  flex: 0 1 auto;
+  max-height: 100%;
+  min-height: 0;
+}
+
+/* Фаза «не состоялось»: заполняем `.center` и центрируем колонку по вертикали и горизонтали */
+.centerPhaseMotionNoVote {
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+}
+
+.centerAnimateHostNoVote {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+/* См. `.overlayRootRevoteCardsBleed`: центральная колонка с overflow:hidden. */
+.centerRevoteBleed {
+  overflow: visible;
+}
+
+/* Ограничиваем высоту для AnimatePresence → motion; не flex-grow — центр экрана остаётся у `.center`. */
+.centerAnimateHost {
+  flex: 0 1 auto;
+  max-height: 100%;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Колонка между верхним декором и HUD: внутренний flex + слот центра. */
+.inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+
+.center {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(12px, 4vh, 24px) clamp(12px, 2vw, 20px);
+  overflow: hidden;
+}
+
+/* Обёртка стека заголовков фазы «не состоялось». */
+.phaseRoot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  text-align: center;
+  max-width: min(36rem, 92vw);
+}
+
+.phaseRootNoVote {
+  align-self: center;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: min(52rem, 96vw);
+}
+
+@media (min-width: 900px) {
+  .phaseRootNoVote {
+    max-width: min(72rem, 96vw);
+  }
+}

@@ -1,0 +1,180 @@
+/* Регистрируем переменную для плавной анимации градиента */
+@property --bg-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+/* Полоса на всю ширину: по краям 0% непрозрачности акцента, в центре ~80% */
+.wrapBlock {
+  --timer-rgb: 158, 212, 120;
+  --timer-text: #b7eb87;
+  
+  position: relative; /* Добавлено для позиционирования рамки */
+  container-type: size; /* Объявляем контейнером для шрифта в cqh */
+  
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+  border: none;
+  container-type: size;
+  
+  background: linear-gradient(
+    90deg,
+    rgba(var(--timer-rgb), 0) 0%,
+    rgba(var(--timer-rgb), 0.06) 12%,
+    rgba(var(--timer-rgb), 0.5) 50%,
+    rgba(var(--timer-rgb), 0.06) 88%,
+    rgba(var(--timer-rgb), 0) 100%
+  );
+}
+
+/* Анимированная рамка-блик с затуханием по краям */
+.wrapBlock::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box; 
+  border: 2px solid transparent; 
+  
+  background: conic-gradient(
+    from var(--bg-angle),
+    rgba(var(--timer-rgb), 0) 0%,
+    rgba(var(--timer-rgb), 1) 20%,
+    rgba(var(--timer-rgb), 0) 40%,
+    rgba(var(--timer-rgb), 0) 100%
+  ) border-box; 
+  
+  /* Для движков WebKit (Chrome, Safari, старый Edge) */
+  -webkit-mask: 
+  linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.15) 12%,
+    #fff 50%,
+    rgba(255, 255, 255, 0.15) 88%,
+    rgba(255, 255, 255, 0.05) 100%
+  ) border-box,
+  linear-gradient(#fff 0 0) padding-box;
+
+  /* Для современных стандартов (Firefox и новые версии других браузеров) */
+  mask: 
+  linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.15) 12%,
+    #fff 50%,
+    rgba(255, 255, 255, 0.15) 88%,
+    rgba(255, 255, 255, 0.05) 100%
+  ) border-box,
+  linear-gradient(#fff 0 0) padding-box;
+
+  -webkit-mask-composite: source-out;
+  mask-composite: subtract;
+  pointer-events: none;
+  
+  /* ВОТ ЭТА СТРОЧКА ПОТЕРЯЛАСЬ: */
+  animation: spinBorder 4s linear infinite;
+}
+
+@keyframes spinBorder {
+  to {
+    --bg-angle: 360deg;
+  }
+}
+
+.wrapBlockPaused::before {
+  animation: none;
+  opacity: 0.35;
+}
+
+.pauseLabel {
+  font-family: var(--font-tektur), Tektur, monospace;
+  font-size: clamp(22px, 42cqh, 56px);
+  font-weight: 700;
+  color: var(--timer-text);
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 8px rgba(var(--timer-rgb), 0.35);
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+@media (max-width: 1270px) {
+  .pauseLabel {
+    font-size: 22px;
+    letter-spacing: 0.14em;
+  }
+}
+
+.digits {
+  font-family: var(--font-tektur), Tektur, monospace;
+  font-size: clamp(34px, 64cqh, 110px); /* Возвращаем наш красивый clamp для десктопа */
+  font-weight: 700;
+  color: var(--timer-text);
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 12px rgba(var(--timer-rgb), 0.5);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
+}
+
+@media (max-width: 1270px) {
+  .wrapBlock {
+    min-height: 60px;
+    padding: 6px 0;
+    
+    /* ВОТ ОН, УБИЙЦА БАГА! Отключаем size containment на мобилках */
+    container-type: normal; 
+  }
+
+  .digits {
+    /* Поскольку высота жестко 60px, задаем фиксированный размер */
+    font-size: 34px; 
+  }
+}
+
+.wrapInline {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  padding: 0 4px;
+}
+
+.digitsInline {
+  font-family: var(--font-tektur), Tektur, monospace;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--timer-text);
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 8px rgba(var(--timer-rgb), 0.45);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* Цветовые темы, которые теперь перекрашивают и фон, и текст, и рамку */
+.toneNormal {
+  --timer-rgb: 158, 212, 120;
+  --timer-text: #b7eb87;
+}
+
+.toneWarn {
+  --timer-rgb: 232, 184, 94;
+  --timer-text: #f2cb82;
+}
+
+.toneDanger {
+  --timer-rgb: 212, 112, 112;
+  --timer-text: #e79191;
+}
+
+.tonePause {
+  --timer-rgb: 140, 140, 150;
+  --timer-text: rgba(220, 220, 228, 0.92);
+}

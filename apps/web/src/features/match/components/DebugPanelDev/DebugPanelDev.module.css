@@ -1,0 +1,120 @@
+.root {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 16px;
+  padding: 8px 14px;
+  padding-top: max(8px, env(safe-area-inset-top, 0px));
+  background: rgba(10, 10, 12, 0.94);
+  border-bottom: 1px solid rgba(247, 196, 49, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+}
+
+.badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: rgba(247, 196, 49, 0.95);
+  padding: 4px 8px;
+  border-radius: 0.25em;
+  border: 1px solid rgba(247, 196, 49, 0.4);
+}
+
+.btnEnd {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-radius: 0.35em;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  background: rgba(185, 28, 28, 0.4);
+  color: #fecaca;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.btnEnd:hover:not(:disabled) {
+  background: rgba(185, 28, 28, 0.6);
+}
+
+.btnEnd:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.status {
+  flex: 1 1 200px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.75);
+  min-width: 0;
+}
+
+.statusLabel {
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+}
+
+.statusOk {
+  color: #86efac;
+}
+
+.statusWarn {
+  color: #fcd34d;
+}
+
+.statusErr {
+  color: #f87171;
+}
+
+.mono {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10px;
+  word-break: break-all;
+  color: rgba(255, 255, 255, 0.55);
+  max-width: min(100%, 28rem);
+}
+
+.hint {
+  flex-basis: 100%;
+  margin: 0;
+  text-align: center;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.35;
+  color: #f87171;
+  text-align: center;
+  word-break: break-word;
+}
+
+.slot {
+  flex-basis: 100%;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 8px;
+  margin-top: 2px;
+}

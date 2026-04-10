@@ -11,7 +11,6 @@ export type {
     Room,
     RoomStatus,
     Settings,
-    SplashEventPayload,
   } from './room';
   
   export type {

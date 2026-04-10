@@ -1,0 +1,54 @@
+/* Ряд карточек + слот VS — `RevoteCandidateCardsRow`. */
+
+.revoteCardsRow {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: center;
+  gap: clamp(6px, 1.5vw, 14px);
+  width: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.revoteCardMotion {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.revoteVsMiddle {
+  flex: 0 0 clamp(5.5rem, 20vw, 11rem);
+  min-width: clamp(64px, 16vw, 120px);
+  max-width: min(200px, 26vw);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  pointer-events: none;
+}
+
+/* ≤ TABLET deco: колонка — первая карта над VS, вторая под. */
+.revoteCardsRowStacked {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(0.35rem, 1.8vh, 0.85rem);
+}
+
+.revoteCardsRowStacked .revoteCardMotion {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: min(22rem, 92vw);
+  justify-content: center;
+}
+
+.revoteCardsRowStacked .revoteVsMiddle {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 100%;
+  max-width: min(11rem, 42vw);
+  min-height: clamp(3.25rem, 18vw, 6rem);
+}

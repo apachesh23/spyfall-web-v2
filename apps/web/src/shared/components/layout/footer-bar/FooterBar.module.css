@@ -187,3 +187,11 @@
   min-height: 0;
   overflow: hidden;
 }
+
+.gameHostPanelBody {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  width: 100%;
+}

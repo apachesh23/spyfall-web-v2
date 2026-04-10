@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { normalizeRoomSettings } from "@/lib/normalizeRoomSettings";
 import { peekStashedRoomPlayer, clearStashedRoomPlayer } from "@/lib/roomIdentityRecovery";
-import type { Player, Settings, SplashEventPayload, RoomStatus } from "@/types";
+import type { Player, Settings, RoomStatus } from "@/types";
 
 export function useLobbyData(code: string) {
   const router = useRouter();
@@ -25,14 +25,13 @@ export function useLobbyData(code: string) {
     mode_spy_chaos: false,
     mode_hidden_threat: false,
   });
-  const [splashEvent, setSplashEvent] = useState<SplashEventPayload | null>(null);
   const [roomStatus, setRoomStatus] = useState<RoomStatus | null>(null);
 
   async function loadRoom() {
     try {
       const { data: room, error: roomError } = await supabase
         .from("rooms")
-        .select("id, code, status, settings, splash_event")
+        .select("id, code, status, settings")
         .eq("code", code)
         .single();
 
@@ -44,7 +43,6 @@ export function useLobbyData(code: string) {
 
       setRoomId(room.id);
       setRoomStatus((room.status as RoomStatus) ?? null);
-      setSplashEvent(room.splash_event ?? null);
       if (room.settings) {
         setSettings(normalizeRoomSettings(room.settings));
       }
@@ -117,8 +115,6 @@ export function useLobbyData(code: string) {
     isHost,
     settings,
     setSettings,
-    splashEvent,
-    setSplashEvent,
     roomStatus,
     setRoomStatus,
   };

@@ -7,6 +7,18 @@ const repoRoot = path.join(__dirname, "../..");
 const colyseusSchemaAbs = path.join(repoRoot, "node_modules", "@colyseus", "schema");
 
 const nextConfig: NextConfig = {
+  /**
+   * Next.js 15+ в dev режет запросы к `/_next/*` и HMR WebSocket с «чужого» host.
+   * Без этого при открытии с LAN (например http://192.168.x.x:3000) падает webpack-hmr.
+   * При смене подсети добавь свой IP или паттерн.
+   */
+  allowedDevOrigins: [
+    "localhost",
+    "127.0.0.1",
+    "192.168.28.102",
+    "192.168.*.*",
+    "10.*.*.*",
+  ],
   transpilePackages: ["@spyfall/shared"],
   turbopack: {
     root: repoRoot,

@@ -1,0 +1,30 @@
+/* Композиция букв VS — `RevoteVsLogo`. */
+
+.revoteVsComposition {
+  position: relative;
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.revoteVsLetter {
+  display: block;
+  width: auto;
+  height: auto;
+  max-height: min(120px, 28vw);
+  pointer-events: none;
+  user-select: none;
+  vertical-align: top;
+}
+
+.revoteVsAnchor {
+  position: absolute;
+}
+
+.revoteVsAnchorV {
+  z-index: 2;
+}
+
+.revoteVsAnchorS {
+  z-index: 1;
+}

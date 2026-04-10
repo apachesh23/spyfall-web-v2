@@ -59,6 +59,7 @@ export function buildMatchRoomOptions(
 ): {
   matchSessionId: string;
   discussionDurationMs: number;
+  votingDurationMs: number;
   roster: MatchRosterRowJson[];
   locationName: string;
   locationImageKey: string;
@@ -101,6 +102,9 @@ export function buildMatchRoomOptions(
   const shuffledRoles = shuffle(roles);
   const civilians = list.filter((p) => !spySet.has(p.id));
 
+  const voteMin = typeof settings.vote_duration === "number" ? settings.vote_duration : 1;
+  const votingDurationMs = Math.max(30_000, Math.min(600_000, Math.floor(voteMin * 60 * 1000)));
+
   const roster: MatchRosterRowJson[] = list.map((p) => {
     const avatarId = isValidAvatarId(p.avatar_id) ? p.avatar_id : DEFAULT_AVATAR_ID;
     const isSpy = spySet.has(p.id);
@@ -124,6 +128,7 @@ export function buildMatchRoomOptions(
   return {
     matchSessionId,
     discussionDurationMs,
+    votingDurationMs,
     roster,
     locationName: location.name,
     locationImageKey: location.image_key?.trim() || "default",

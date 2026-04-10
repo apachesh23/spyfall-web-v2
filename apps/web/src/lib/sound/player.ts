@@ -316,6 +316,8 @@ export function stopLobbyMusic(shouldSave = true): void {
 export function startGameMusic(): void {
   if (typeof window === 'undefined') return;
   if (activeContext === 'game') return;
+  /** Не перебивать vote1/vote2 жестом с `MatchPlayMusicMount` до выхода из голосования. */
+  if (activeContext === 'vote') return;
 
   activeContext = 'game';
 

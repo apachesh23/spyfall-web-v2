@@ -9,8 +9,7 @@ type RouteLoaderState = {
 };
 
 export const useRouteLoaderStore = create<RouteLoaderState>((set) => ({
-  // По умолчанию глобальный лоадер выключен.
-  // Для F5 используем статический initial-loader в layout.tsx.
+  // По умолчанию выключен. Включение: TopBar / лобби→play / MatchScreen useLayoutEffect (F5 на /play).
   isVisible: false,
   start: () => set({ isVisible: true }),
   stop: () => set({ isVisible: false }),

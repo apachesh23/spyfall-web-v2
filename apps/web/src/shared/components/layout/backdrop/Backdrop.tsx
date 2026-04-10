@@ -52,28 +52,45 @@ export type BackdropProps = {
   contentClassName?: string;
   /** Видео-луп (лобби и т.д.) или повторяющийся тайл (игра) */
   backgroundType?: "video" | "tile";
+  /** Play: метки для ч/б при паузе — фон, без TopBar (см. `body[data-match-paused-grayscale]`) */
+  playLayoutRoot?: boolean;
+  /**
+   * Play: пока false — плоский фон `--spyfall-route-loader-bg` как у FullscreenLoader (бесшовно до появления логотипа).
+   */
+  showVideoBackground?: boolean;
 };
 
 export function Backdrop({
   children,
   contentClassName = "",
   backgroundType = "video",
+  playLayoutRoot = false,
+  showVideoBackground = true,
 }: BackdropProps) {
   return (
     <div className={styles.root}>
-      <div className={`${styles.fillLayer} video-bg-layer`}>
-        {backgroundType === "tile" ? (
+      <div
+        className={`${styles.fillLayer} video-bg-layer`}
+        {...(playLayoutRoot ? { "data-play-pause-filter": "" } : {})}
+      >
+        {showVideoBackground ? (
           <>
-            <div className={styles.tileLayer} aria-hidden />
-            <div className={styles.tileDarkOverlay} aria-hidden />
+            {backgroundType === "tile" ? (
+              <>
+                <div className={styles.tileLayer} aria-hidden />
+                <div className={styles.tileDarkOverlay} aria-hidden />
+              </>
+            ) : (
+              <ClientMountVideoBackdrop />
+            )}
+
+            <div className={styles.scrim} aria-hidden />
+
+            <div className={`${styles.fillLayer} vignette-overlay`} aria-hidden />
           </>
         ) : (
-          <ClientMountVideoBackdrop />
+          <div className={styles.loaderSolidFill} aria-hidden />
         )}
-
-        <div className={styles.scrim} aria-hidden />
-
-        <div className={`${styles.fillLayer} vignette-overlay`} aria-hidden />
       </div>
 
       <div className={`${styles.content} ${contentClassName}`.trim()}>

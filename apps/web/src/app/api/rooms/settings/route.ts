@@ -52,7 +52,8 @@ export async function POST(request: Request) {
     // Булевы флаги: если поля нет в JSON (undefined после stringify), не затираем true в БД.
     const validatedSettings: Settings = {
       spy_count: Math.max(1, Math.min(settings.spy_count ?? (current.spy_count as number) ?? 1, 3)),
-      game_duration: Math.max(5, Math.min(settings.game_duration ?? (current.game_duration as number) ?? 15, 30)),
+      /** 1–30 мин; раньше минимум был 5 — мешал коротким партиям и тестам. */
+      game_duration: Math.max(1, Math.min(settings.game_duration ?? (current.game_duration as number) ?? 15, 30)),
       vote_duration: Math.max(1, Math.min(settings.vote_duration ?? (current.vote_duration as number) ?? 1, 5)),
       mode_roles: pickBool(body, 'mode_roles', current),
       mode_theme: pickBool(body, 'mode_theme', current),

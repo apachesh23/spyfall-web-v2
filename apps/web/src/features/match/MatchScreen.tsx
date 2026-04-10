@@ -1,9 +1,16 @@
 "use client";
 
 import { Client, type Room } from "colyseus.js";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useReducer, useState, useMemo } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import {
   COLYSEUS_ROOM_NAME,
   GameState,
@@ -11,17 +18,36 @@ import {
   WS_SERVER_MESSAGE,
   type MatchAssignmentPayload,
 } from "@spyfall/shared";
-import { peekStashedRoomPlayer } from "@/lib/roomIdentityRecovery";
-import { supabase } from "@/lib/supabase/client";
 import {
-  locationImageCandidates,
-  locationImageFallbackSrc,
-} from "@/lib/locations";
+  clearStashedRoomPlayer,
+  peekStashedRoomPlayer,
+} from "@/lib/roomIdentityRecovery";
+import { supabase } from "@/lib/supabase/client";
 import { normalizeRoomSettings } from "@/lib/normalizeRoomSettings";
+import { resolveColyseusUrlForBrowser } from "@/lib/env";
+import { startGameMusic, startVoteMusic, stopVoteMusic } from "@/lib/sound";
 import type { Settings } from "@/types/room";
-import { PlayerList } from "@/features/player";
 import type { AvatarId } from "@/lib/avatars";
 import type { Player } from "@/types/player";
+import { useMediaQuery } from "@/shared/hooks/useMediaQuery";
+import { useRouteLoaderStore } from "@/store/route-loader-store";
+import { useReactions } from "@/features/reactions/context";
+import { FooterBar } from "@/shared/components/layout/footer-bar/FooterBar";
+import { MatchPauseProvider } from "./context/MatchPauseContext";
+import { useMatchReactionsChannel } from "./hooks/useMatchReactionsChannel";
+import { useMatchPlayUiReady } from "./context/MatchPlayUiReadyContext";
+import {
+  DebugPanelDev,
+  MatchColyseusSplashLayer,
+  MatchGameHostButtons,
+  MatchHintQuestionButton,
+  MatchPauseGrayscaleOverlay,
+} from "./components";
+import {
+  MatchVotingOverlay,
+  type MatchVotingOverlayPlayer,
+} from "./components/MatchVoting";
+import { MatchGamePageLayout } from "./layout/MatchGamePageLayout/MatchGamePageLayout";
 import styles from "./match-screen.module.css";
 
 type MatchScreenProps = {
@@ -37,11 +63,13 @@ export type MatchPlayerJson = {
   isSpy: boolean;
   roleAtLocation: string;
   spyCardUrl: string;
+  eliminated: boolean;
 };
 
 export type GameStateJson = {
   phase: string;
   matchEndsAt: number;
+  matchPaused: boolean;
   matchSessionId: string;
   locationName: string;
   locationImageKey: string;
@@ -49,6 +77,28 @@ export type GameStateJson = {
   modeTheme: boolean;
   modeRole: boolean;
   players: Record<string, MatchPlayerJson>;
+  gameStartedAt: number;
+  votingDurationSec: number;
+  firstEarlyVoteAfterAt: number;
+  earlyVoteCooldownUntil: number;
+  earlyVotesUsed: number;
+  voteIsFinal: boolean;
+  voteStage: string;
+  voteEndsAt: number;
+  voteTransitionEndsAt: number;
+  revoteA: string;
+  revoteB: string;
+  stubEliminatedId: string;
+  earlyVoteAck: Record<string, string>;
+  voteBallots: Record<string, string>;
+  discussionTimerRemainingMs: number;
+  gameEndReason: string;
+  matchSplashType: string;
+  matchSplashAt: number;
+  matchSplashEndsAt: number;
+  matchSplashEliminatedId: string;
+  matchSplashVotePercent: number;
+  matchSplashEliminationGameOver: boolean;
 };
 
 function num(v: unknown): number {
@@ -59,12 +109,34 @@ function asBool(v: unknown): boolean {
   return v === true || v === "true" || v === 1 || v === "1";
 }
 
+function parseMatchPause(settings: unknown): { paused: boolean; remainingSec: number | null } {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+    return { paused: false, remainingSec: null };
+  }
+  const s = settings as Record<string, unknown>;
+  const paused = asBool(s.match_paused);
+  const r = s.match_paused_remaining_sec;
+  const remainingSec =
+    typeof r === "number" && Number.isFinite(r) ? Math.max(0, Math.floor(r)) : null;
+  return { paused, remainingSec };
+}
+
 function strField(p: Record<string, unknown>, camel: string, snake: string): string {
   const a = p[camel];
   const b = p[snake];
   if (typeof a === "string") return a;
   if (typeof b === "string") return b;
   return "";
+}
+
+function ingestStringRecord(val: unknown): Record<string, string> {
+  if (!val || typeof val !== "object" || Array.isArray(val)) return {};
+  const o = val as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (typeof v === "string") out[k] = v;
+  }
+  return out;
 }
 
 function extractPlayer(p: Record<string, unknown> | null | undefined): MatchPlayerJson | null {
@@ -79,6 +151,7 @@ function extractPlayer(p: Record<string, unknown> | null | undefined): MatchPlay
     isSpy: asBool(p.isSpy ?? p.is_spy),
     roleAtLocation: strField(p, "roleAtLocation", "role_at_location"),
     spyCardUrl: strField(p, "spyCardUrl", "spy_card_url"),
+    eliminated: asBool(p.eliminated),
   };
 }
 
@@ -91,6 +164,7 @@ function snapshotMatchState(room: Room): GameStateJson | null {
   type LooseState = {
     phase?: string;
     matchEndsAt?: number;
+    matchPaused?: boolean;
     matchSessionId?: string;
     locationName?: string;
     locationImageKey?: string;
@@ -163,6 +237,30 @@ function snapshotMatchState(room: Room): GameStateJson | null {
   let themeText = typeof loose.themeText === "string" ? loose.themeText : "";
   let modeTheme = asBool(loose.modeTheme);
   let modeRole = asBool(loose.modeRole);
+  let matchPaused = asBool(loose.matchPaused);
+
+  let gameStartedAt = 0;
+  let votingDurationSec = 60;
+  let firstEarlyVoteAfterAt = 0;
+  let earlyVoteCooldownUntil = 0;
+  let earlyVotesUsed = 0;
+  let voteIsFinal = false;
+  let voteStage = "idle";
+  let voteEndsAt = 0;
+  let voteTransitionEndsAt = 0;
+  let revoteA = "";
+  let revoteB = "";
+  let stubEliminatedId = "";
+  let earlyVoteAck: Record<string, string> = {};
+  let voteBallots: Record<string, string> = {};
+  let discussionTimerRemainingMs = 0;
+  let gameEndReason = "";
+  let matchSplashType = "";
+  let matchSplashAt = 0;
+  let matchSplashEndsAt = 0;
+  let matchSplashEliminatedId = "";
+  let matchSplashVotePercent = 0;
+  let matchSplashEliminationGameOver = false;
 
   if (!matchEndsAt) matchEndsAt = num(loose._matchEndsAt);
   if (typeof loose._phase === "string" && loose._phase) phase = loose._phase;
@@ -185,14 +283,59 @@ function snapshotMatchState(room: Room): GameStateJson | null {
       else if ("mode_theme" in j) modeTheme = asBool(j.mode_theme);
       if ("modeRole" in j) modeRole = asBool(j.modeRole);
       else if ("mode_role" in j) modeRole = asBool(j.mode_role);
+      if ("matchPaused" in j) matchPaused = asBool(j.matchPaused);
+      else if ("match_paused" in j) matchPaused = asBool(j.match_paused);
+
+      gameStartedAt = num(j.gameStartedAt ?? j.game_started_at);
+      votingDurationSec = num(j.votingDurationSec ?? j.voting_duration_sec) || 60;
+      firstEarlyVoteAfterAt = num(j.firstEarlyVoteAfterAt ?? j.first_early_vote_after_at);
+      earlyVoteCooldownUntil = num(j.earlyVoteCooldownUntil ?? j.early_vote_cooldown_until);
+      earlyVotesUsed = num(j.earlyVotesUsed ?? j.early_votes_used);
+      if ("voteIsFinal" in j) voteIsFinal = asBool(j.voteIsFinal);
+      else if ("vote_is_final" in j) voteIsFinal = asBool(j.vote_is_final);
+      if (typeof j.voteStage === "string") voteStage = j.voteStage;
+      else if (typeof j.vote_stage === "string") voteStage = j.vote_stage;
+      voteEndsAt = num(j.voteEndsAt ?? j.vote_ends_at);
+      voteTransitionEndsAt = num(j.voteTransitionEndsAt ?? j.vote_transition_ends_at);
+      if (typeof j.revoteA === "string") revoteA = j.revoteA;
+      else if (typeof j.revote_a === "string") revoteA = j.revote_a;
+      if (typeof j.revoteB === "string") revoteB = j.revoteB;
+      else if (typeof j.revote_b === "string") revoteB = j.revote_b;
+      if (typeof j.stubEliminatedId === "string") stubEliminatedId = j.stubEliminatedId;
+      else if (typeof j.stub_eliminated_id === "string") stubEliminatedId = j.stub_eliminated_id;
+      earlyVoteAck = ingestStringRecord(j.earlyVoteAck ?? j.early_vote_ack);
+      voteBallots = ingestStringRecord(j.voteBallots ?? j.vote_ballots);
+      discussionTimerRemainingMs = num(
+        j.discussionTimerRemainingMs ?? j.discussion_timer_remaining_ms,
+      );
+      if (typeof j.gameEndReason === "string") gameEndReason = j.gameEndReason;
+      else if (typeof j.game_end_reason === "string") gameEndReason = j.game_end_reason;
+
+      if (typeof j.matchSplashType === "string") matchSplashType = j.matchSplashType;
+      else if (typeof j.match_splash_type === "string") matchSplashType = j.match_splash_type;
+      matchSplashAt = num(j.matchSplashAt ?? j.match_splash_at);
+      matchSplashEndsAt = num(j.matchSplashEndsAt ?? j.match_splash_ends_at);
+      if (typeof j.matchSplashEliminatedId === "string") matchSplashEliminatedId = j.matchSplashEliminatedId;
+      else if (typeof j.match_splash_eliminated_id === "string")
+        matchSplashEliminatedId = j.match_splash_eliminated_id;
+      matchSplashVotePercent = num(j.matchSplashVotePercent ?? j.match_splash_vote_percent);
+      if ("matchSplashEliminationGameOver" in j)
+        matchSplashEliminationGameOver = asBool(j.matchSplashEliminationGameOver);
+      else if ("match_splash_elimination_game_over" in j)
+        matchSplashEliminationGameOver = asBool(j.match_splash_elimination_game_over);
     } catch {
       /* ignore */
     }
   }
 
+  if (phase === "voting" && (voteStage === "idle" || voteStage === "")) {
+    voteStage = "collect1";
+  }
+
   return {
     phase,
     matchEndsAt,
+    matchPaused,
     matchSessionId,
     locationName,
     locationImageKey,
@@ -200,6 +343,28 @@ function snapshotMatchState(room: Room): GameStateJson | null {
     modeTheme,
     modeRole,
     players,
+    gameStartedAt,
+    votingDurationSec,
+    firstEarlyVoteAfterAt,
+    earlyVoteCooldownUntil,
+    earlyVotesUsed,
+    voteIsFinal,
+    voteStage,
+    voteEndsAt,
+    voteTransitionEndsAt,
+    revoteA,
+    revoteB,
+    stubEliminatedId,
+    earlyVoteAck,
+    voteBallots,
+    discussionTimerRemainingMs,
+    gameEndReason,
+    matchSplashType,
+    matchSplashAt,
+    matchSplashEndsAt,
+    matchSplashEliminatedId,
+    matchSplashVotePercent,
+    matchSplashEliminationGameOver,
   };
 }
 
@@ -217,6 +382,12 @@ function getOrCreateDevicePlayerId(): string {
   } catch {
     return crypto.randomUUID();
   }
+}
+
+function formatEarlyLock(totalSec: number): string {
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function formatConnectError(e: unknown): string {
@@ -274,11 +445,68 @@ function toLobbyPlayers(rows: MatchPlayerJson[], roomId: string): Player[] {
       is_host: p.isHost,
       room_id: roomId,
       joined_at: "",
+      is_alive: !p.eliminated,
+      death_reason: p.eliminated ? ("voted" as const) : null,
     }));
+}
+
+/**
+ * Лоадер держим, пока в Colyseus нет полной картины: таймер матча и все игроки из Supabase.
+ * `expectedCount === null` — head-count по `players` ещё не пришёл; `-1` — ошибка запроса, хватает ≥1 в state.
+ */
+/** Этапы, с которых UI голосования уходит exit-анимацией перед сплэшем изгнания. */
+const VOTE_OVERLAY_STAGES_BEFORE_ELIMINATION_SPLASH = new Set([
+  "collect1",
+  "collect2",
+  "intermission_no_vote",
+  "intermission_tie",
+  "intermission_revote_no_vote",
+]);
+
+function syncPlayPageMusicForState(json: GameStateJson | null): void {
+  if (!json) return;
+  const { phase, voteStage } = json;
+  const votingUi = phase === "voting" && voteStage !== "elimination_splash";
+  if (votingUi) {
+    const round =
+      voteStage === "collect2" || voteStage === "intermission_revote_no_vote"
+        ? "revote"
+        : voteStage === "collect1" ||
+            voteStage === "intermission_no_vote" ||
+            voteStage === "intermission_tie"
+          ? "first"
+          : null;
+    if (round) startVoteMusic(round);
+  } else {
+    stopVoteMusic();
+    if (phase === "discussion") startGameMusic();
+  }
+}
+
+function isMatchRouteLoaderReady(
+  stateJson: GameStateJson | null,
+  expectedCount: number | null,
+): boolean {
+  if (!stateJson) return false;
+  const inState = Object.keys(stateJson.players).length;
+  if (inState === 0) return false;
+  if (stateJson.matchEndsAt <= 0) return false;
+  if (expectedCount === null) return false;
+  if (expectedCount < 0) return inState >= 1;
+  return inState >= expectedCount;
 }
 
 export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
   const router = useRouter();
+  const stopRouteLoader = useRouteLoaderStore((s) => s.stop);
+  const startRouteLoader = useRouteLoaderStore((s) => s.start);
+  const { setUiReady } = useMatchPlayUiReady();
+
+  /* Полный перезагрузка /play (F5): лоадер не включался — только при client-nav из лобби был start(). */
+  useLayoutEffect(() => {
+    startRouteLoader();
+  }, [startRouteLoader]);
+
   const [status, setStatus] = useState<"idle" | "connecting" | "ok" | "error">(
     "idle",
   );
@@ -286,6 +514,8 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
   const [pong, setPong] = useState<string | null>(null);
   const [stateJson, setStateJson] = useState<GameStateJson | null>(null);
   const [clockSkewMs, setClockSkewMs] = useState(0);
+  /** Только чтобы форсировать ре-рендер после exit голосования (ref сам по себе не триггерит paint). */
+  const [, bumpEliminationSplashAfterVoteExit] = useReducer((n: number) => n + 1, 0);
   const [, bumpUi] = useReducer((n: number) => n + 1, 0);
   const [playBundle, setPlayBundle] = useState<{
     dbRoomId: string;
@@ -313,17 +543,76 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
       }
     | { status: "error"; message: string };
   const [locationDev, setLocationDev] = useState<LocationDevState>({ status: "idle" });
+  /** Пауза матча из `rooms.settings` (единый рычаг для UI и будущих блоков). */
+  const [matchPauseFromRoom, setMatchPauseFromRoom] = useState<{
+    paused: boolean;
+    remainingSec: number | null;
+  }>({ paused: false, remainingSec: null });
+  const [pauseBusy, setPauseBusy] = useState(false);
+  /** Ожидаемое число строк в `players` для комнаты (сверка с Colyseus). */
+  const [expectedPlayerCount, setExpectedPlayerCount] = useState<number | null>(null);
+  const colyseusRoomRef = useRef<Room | null>(null);
+  const prevVoteStageRef = useRef<string | undefined>(undefined);
+  const suppressSplashUntilVoteExitRef = useRef(false);
+  /** false с момента входа в elimination_splash из фазы голосования до onExitComplete оверлея — без setState, синхронно в рендере. */
+  const eliminationSplashAllowedAfterVoteExitRef = useRef(true);
+  const [colyseusRoom, setColyseusRoom] = useState<Room | null>(null);
+  const [effectiveColyseusUrl, setEffectiveColyseusUrl] = useState(colyseusUrl);
+
+  useLayoutEffect(() => {
+    setEffectiveColyseusUrl(resolveColyseusUrlForBrowser(colyseusUrl));
+  }, [colyseusUrl]);
 
   const lobbyPlayerId = getLobbyPlayerId(sessionId);
   const effectivePlayerId = lobbyPlayerId ?? getOrCreateDevicePlayerId();
   const dbRoomId = playBundle?.dbRoomId ?? "";
   const isMatchHost = !!playBundle && !!lobbyPlayerId && lobbyPlayerId === playBundle.hostId;
 
+  const reactions = useReactions();
+  const { sendReaction } = useMatchReactionsChannel({
+    roomId: playBundle?.dbRoomId ?? null,
+    playerId: lobbyPlayerId,
+    onReaction: (payload) => reactions?.addReaction(payload),
+  });
+
+  const sendReactionRef = useRef(sendReaction);
+  sendReactionRef.current = sendReaction;
+
+  const sendReactionWithSelf = useCallback(
+    (reactionId: number) => {
+      if (!lobbyPlayerId) return;
+      reactions?.addReaction({ playerId: lobbyPlayerId, reactionId });
+      sendReactionRef.current(reactionId);
+    },
+    [lobbyPlayerId, reactions],
+  );
+
+  useEffect(() => {
+    reactions?.registerSendReaction(sendReactionWithSelf);
+    return () => reactions?.registerSendReaction(() => {});
+  }, [reactions, sendReactionWithSelf]);
+
   useEffect(() => {
     const id = window.setInterval(() => {
       bumpUi();
     }, 500);
     return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    syncPlayPageMusicForState(stateJson);
+  }, [stateJson?.phase, stateJson?.voteStage]);
+
+  const stateJsonMusicRef = useRef(stateJson);
+  stateJsonMusicRef.current = stateJson;
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        syncPlayPageMusicForState(stateJsonMusicRef.current);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
   useEffect(() => {
@@ -368,13 +657,44 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
 
   useEffect(() => {
     if (!playBundle?.dbRoomId) {
+      setExpectedPlayerCount(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const { count, error } = await supabase
+        .from("players")
+        .select("*", { count: "exact", head: true })
+        .eq("room_id", playBundle.dbRoomId);
+      if (cancelled) return;
+      if (error != null) {
+        setExpectedPlayerCount(-1);
+        return;
+      }
+      setExpectedPlayerCount(typeof count === "number" ? count : -1);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [playBundle?.dbRoomId]);
+
+  useEffect(() => {
+    if (!playBundle?.rawRoomSettings) {
+      setMatchPauseFromRoom({ paused: false, remainingSec: null });
+      return;
+    }
+    setMatchPauseFromRoom(parseMatchPause(playBundle.rawRoomSettings));
+  }, [playBundle?.dbRoomId, playBundle?.rawRoomSettings]);
+
+  useEffect(() => {
+    if (!playBundle?.dbRoomId) {
       setJoinNickname(null);
       setJoinIdentityReady(false);
       return;
     }
     if (!lobbyPlayerId) {
       setJoinNickname(null);
-      setJoinIdentityReady(true);
+      setJoinIdentityReady(false);
       return;
     }
     let cancelled = false;
@@ -387,6 +707,18 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
         .eq("id", lobbyPlayerId)
         .maybeSingle();
       if (cancelled) return;
+      if (!data) {
+        try {
+          window.localStorage.removeItem(`player_${sessionId}`);
+        } catch {
+          /* */
+        }
+        clearStashedRoomPlayer(sessionId);
+        router.replace(`/invite/${sessionId}`);
+        setJoinNickname(null);
+        setJoinIdentityReady(false);
+        return;
+      }
       const n = data?.nickname && typeof data.nickname === "string" ? data.nickname.trim() : "";
       setJoinNickname(n ? n.slice(0, 48) : null);
       setJoinIdentityReady(true);
@@ -394,7 +726,14 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     return () => {
       cancelled = true;
     };
-  }, [playBundle?.dbRoomId, lobbyPlayerId]);
+  }, [playBundle?.dbRoomId, lobbyPlayerId, sessionId, router]);
+
+  /** Нет сохранённого id игрока для этой комнаты — /play недоступен, только вход по приглашению. */
+  useEffect(() => {
+    if (!playBundle?.dbRoomId) return;
+    if (lobbyPlayerId) return;
+    router.replace(`/invite/${sessionId}`);
+  }, [playBundle?.dbRoomId, lobbyPlayerId, sessionId, router]);
 
   useEffect(() => {
     if (!dbRoomId) return;
@@ -409,7 +748,10 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
           filter: `id=eq.${dbRoomId}`,
         },
         (payload) => {
-          const next = payload.new as { status?: string };
+          const next = payload.new as { status?: string; settings?: unknown };
+          if (next.settings != null) {
+            setMatchPauseFromRoom(parseMatchPause(next.settings));
+          }
           if (next.status === "waiting") {
             router.replace(`/lobby/${sessionId}`);
           }
@@ -418,6 +760,33 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
+    };
+  }, [dbRoomId, sessionId, router]);
+
+  /** Подстраховка к Realtime: редкий пропуск UPDATE при завершении матча (status → waiting). */
+  useEffect(() => {
+    if (!dbRoomId) return;
+    let cancelled = false;
+    const id = window.setInterval(() => {
+      void (async () => {
+        const { data: room, error } = await supabase
+          .from("rooms")
+          .select("status, settings")
+          .eq("code", sessionId)
+          .maybeSingle();
+        if (cancelled || error || !room) return;
+        if (room.status === "waiting") {
+          router.replace(`/lobby/${sessionId}`);
+          return;
+        }
+        if (room.settings != null) {
+          setMatchPauseFromRoom(parseMatchPause(room.settings));
+        }
+      })();
+    }, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
     };
   }, [dbRoomId, sessionId, router]);
 
@@ -497,10 +866,10 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
   }, [dbRoomId, lobbyPlayerId]);
 
   useEffect(() => {
-    if (!playBundle || !joinIdentityReady) return;
+    if (!playBundle || !joinIdentityReady || !lobbyPlayerId) return;
 
     let disposed = false;
-    const client = new Client(colyseusUrl);
+    const client = new Client(effectiveColyseusUrl);
     let room: Room | undefined;
 
     const run = async () => {
@@ -549,6 +918,8 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
           await room.leave();
           return;
         }
+        colyseusRoomRef.current = room;
+        setColyseusRoom(room);
         setStatus("ok");
         const syncFromRoom = () => {
           if (!room) return;
@@ -568,7 +939,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
               rootJson = { toJSON_error: String(e) };
             }
             const info = {
-              colyseusUrl,
+              colyseusUrl: effectiveColyseusUrl,
               roomName: COLYSEUS_ROOM_NAME,
               roomId: room.roomId,
               joinPayloadMatchSessionId: sessionId,
@@ -619,46 +990,113 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
 
     return () => {
       disposed = true;
+      colyseusRoomRef.current = null;
+      setColyseusRoom(null);
       setAssignmentPatch(null);
       void room?.leave();
     };
-  }, [colyseusUrl, sessionId, playBundle, effectivePlayerId, joinNickname, joinIdentityReady]);
+  }, [
+    effectiveColyseusUrl,
+    sessionId,
+    playBundle,
+    effectivePlayerId,
+    joinNickname,
+    joinIdentityReady,
+    lobbyPlayerId,
+  ]);
+
+  /* Глобальный лоадер + показ игрового столбца: до полной синхры. Ошибка — показываем стол (DebugPanel и т.д.). */
+  useEffect(() => {
+    if (status === "error") {
+      setUiReady(true);
+      stopRouteLoader();
+      return;
+    }
+    if (status !== "ok" || !isMatchRouteLoaderReady(stateJson, expectedPlayerCount)) {
+      return;
+    }
+    let cancelled = false;
+    let raf2: number | null = null;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (!cancelled) {
+          setUiReady(true);
+          stopRouteLoader();
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      if (raf2 != null) cancelAnimationFrame(raf2);
+    };
+  }, [status, stateJson, expectedPlayerCount, stopRouteLoader, setUiReady]);
+
+  useEffect(() => {
+    if (!lobbyPlayerId) return;
+    const t = window.setTimeout(() => {
+      setUiReady(true);
+      stopRouteLoader();
+    }, 30000);
+    return () => clearTimeout(t);
+  }, [sessionId, lobbyPlayerId, stopRouteLoader, setUiReady]);
 
   const now = Date.now() + clockSkewMs;
-  const remainingMs =
-    stateJson && stateJson.matchEndsAt > 0 ? Math.max(0, stateJson.matchEndsAt - now) : 0;
-  const remainingSec = Math.ceil(remainingMs / 1000);
+  const discussionRemainingMs =
+    stateJson?.phase === "discussion" && stateJson.matchEndsAt > 0
+      ? Math.max(0, stateJson.matchEndsAt - now)
+      : 0;
+  const remainingSec = Math.ceil(discussionRemainingMs / 1000);
+
+  const pauseMatch = useCallback(async () => {
+    const hostId = lobbyPlayerId;
+    if (!dbRoomId || !hostId) return;
+    const sec = Math.max(0, Math.ceil(discussionRemainingMs / 1000));
+    setPauseBusy(true);
+    try {
+      colyseusRoomRef.current?.send(WS_CLIENT_MESSAGE.matchPause, {});
+      const res = await fetch("/api/game/pause", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId: dbRoomId, hostId, remainingSec: sec }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        console.warn(data.error ?? "Не удалось поставить паузу");
+      }
+    } finally {
+      setPauseBusy(false);
+    }
+  }, [dbRoomId, lobbyPlayerId, discussionRemainingMs]);
+
+  const resumeMatch = useCallback(async () => {
+    const hostId = lobbyPlayerId;
+    if (!dbRoomId || !hostId) return;
+    setPauseBusy(true);
+    try {
+      colyseusRoomRef.current?.send(WS_CLIENT_MESSAGE.matchResume, {});
+      const res = await fetch("/api/game/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId: dbRoomId, hostId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        console.warn(data.error ?? "Не удалось снять паузу");
+      }
+    } finally {
+      setPauseBusy(false);
+    }
+  }, [dbRoomId, lobbyPlayerId]);
 
   const playerRows = stateJson ? Object.values(stateJson.players) : [];
   const listPlayers = stateJson && dbRoomId ? toLobbyPlayers(playerRows, dbRoomId) : [];
   const onlineIds = new Set(playerRows.map((p) => p.id));
   const me = stateJson?.players[effectivePlayerId] ?? null;
-
-  const locationCandidates = useMemo(
-    () => locationImageCandidates(stateJson?.locationImageKey ?? ""),
-    [stateJson?.locationImageKey],
-  );
-  const locationIdxMax = Math.max(0, locationCandidates.length - 1);
-  const [locationImgAttempt, setLocationImgAttempt] = useState(0);
-  useEffect(() => {
-    setLocationImgAttempt(0);
-  }, [stateJson?.locationImageKey]);
-
-  const locationImgIdx = Math.min(locationImgAttempt, locationIdxMax);
-  const locationImgShown =
-    locationCandidates[locationImgIdx] ?? locationImageFallbackSrc();
+  const isMobile = useMediaQuery("(max-width: 1270px)");
 
   const lobbyModes = playBundle?.lobbySettings;
   const themeSnapshot = lobbyModes?.match_theme_snapshot?.trim() ?? "";
-  /** Приоритет: реплицированный state Colyseus (источник правды в матче), затем WS matchAssignment, затем снимок из Supabase. */
-  const themeTextMerged =
-    stateJson?.themeText?.trim() ||
-    assignmentPatch?.themeText?.trim() ||
-    themeSnapshot ||
-    "";
-  const roleTextMerged =
-    me?.roleAtLocation?.trim() || assignmentPatch?.roleAtLocation?.trim() || "";
-
   /** Режимы включены где угодно из лобби / Colyseus / WS — чтобы подпись «выключено» не путать с багом, когда флаги расходятся. */
   const themeModeOn =
     lobbyModes?.mode_theme === true ||
@@ -669,169 +1107,158 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     (stateJson != null && asBool(stateJson.modeRole)) ||
     asBool(assignmentPatch?.modeRole);
 
-  const themeLineBody = themeTextMerged
-    ? themeTextMerged
-    : themeModeOn
-      ? "для этой локации в БД нет строк в themes[] — добавь темы в таблицу locations"
-      : "выключено в настройках лобби (режим темы)";
-  const roleLineBody = roleTextMerged
-    ? roleTextMerged
-    : roleModeOn
-      ? "для этой локации в БД нет roles[] или список пуст — добавь роли в таблицу locations"
-      : "выключено в настройках лобби (режим ролей)";
+  const themeForCard =
+    themeModeOn
+      ? stateJson?.themeText?.trim() ||
+        assignmentPatch?.themeText?.trim() ||
+        themeSnapshot ||
+        ""
+      : "";
+  const roleForCard =
+    roleModeOn ? me?.roleAtLocation?.trim() || assignmentPatch?.roleAtLocation?.trim() || "" : "";
+  const locationForCard = me != null && !me.isSpy ? (stateJson?.locationName ?? "").trim() : "";
 
-  return (
-    <div className="shell shell--wide">
-      <Link href="/" className="link-muted">
-        ← На главную
-      </Link>
-      <div>
-        <h1 className="title-page">Матч</h1>
-        <p className="lead">
-          Комната: <span className="mono-inline">{sessionId}</span>
-        </p>
-        <p className="lead muted">
-          Таймер задаётся из настроек лобби (длительность игры). Для отладки Colyseus:{" "}
-          <span className="mono-inline">?matchDebug=1</span>
-        </p>
-      </div>
+  const isDiscussion = stateJson?.phase === "discussion";
+  const isVotingPhase = stateJson?.phase === "voting";
+  const isEndedPhase = stateJson?.phase === "ended";
+  const votingFrozenSec =
+    isVotingPhase && stateJson
+      ? Math.max(0, Math.ceil(stateJson.discussionTimerRemainingMs / 1000))
+      : 0;
+  const timerExpired = isDiscussion && stateJson != null && stateJson.matchEndsAt > 0 && remainingSec <= 0;
+  const clockDisplay = isEndedPhase
+    ? "--:--"
+    : isVotingPhase
+      ? formatClock(votingFrozenSec)
+      : isDiscussion
+        ? formatClock(remainingSec)
+        : timerExpired
+          ? "00:00"
+          : "--:--";
+  const timerTone: "normal" | "warn" | "danger" = isEndedPhase
+    ? "normal"
+    : isVotingPhase
+      ? votingFrozenSec <= 60
+        ? "danger"
+        : votingFrozenSec <= 180
+          ? "warn"
+          : "normal"
+      : timerExpired
+        ? "danger"
+        : isDiscussion && remainingSec <= 60
+          ? "danger"
+          : isDiscussion && remainingSec <= 180
+            ? "warn"
+            : "normal";
 
-      {isMatchHost ? (
-        <div className="card card--panel">
-          <p className="card__title">Ведущий</p>
-          <p className="card__row muted" style={{ lineHeight: 1.5 }}>
-            Завершить матч — все вернутся в лобби.
-          </p>
-          {endMatchError ? (
-            <p className="card__row muted" style={{ color: "var(--danger, #c44)" }}>
-              {endMatchError}
-            </p>
-          ) : null}
-          <p className="card__row">
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={endMatchBusy || !dbRoomId}
-              onClick={() => void endMatch()}
-            >
-              {endMatchBusy ? "Завершение…" : "Завершить матч"}
-            </button>
-          </p>
-        </div>
-      ) : dbRoomId ? (
-        lobbyPlayerId ? (
-          <p className="lead muted">
-            Ты не ведущий: дождись «Завершить матч» от ведущего.
-          </p>
-        ) : (
-          <p className="lead muted">
-            Зайди в игру из лобби по коду — подставится твой ник и id из базы.
-          </p>
-        )
-      ) : null}
+  const alivePlayerCount = playerRows.filter((p) => !p.eliminated).length;
+  const earlyMajority = Math.max(1, Math.floor(Math.max(1, alivePlayerCount) / 2) + 1);
+  const earlyAckCount = stateJson
+    ? Object.keys(stateJson.earlyVoteAck).filter((id) => !stateJson.players[id]?.eliminated).length
+    : 0;
+  const earlyUnlockAt =
+    stateJson != null ? Math.max(stateJson.firstEarlyVoteAfterAt, stateJson.earlyVoteCooldownUntil) : 0;
+  const earlyLockRemainSec =
+    isDiscussion && stateJson != null && earlyUnlockAt > now
+      ? Math.max(0, Math.ceil((earlyUnlockAt - now) / 1000))
+      : 0;
+  const earlyLimitReached = (stateJson?.earlyVotesUsed ?? 0) >= 2;
+  const meEliminated = me?.eliminated === true;
+  const earlyShowPrimary =
+    isDiscussion && !earlyLimitReached && earlyLockRemainSec <= 0 && !meEliminated;
+  const earlySecondaryLabel = isEndedPhase
+    ? "ИГРА ЗАВЕРШЕНА"
+    : !isDiscussion
+      ? "ИДЁТ ГОЛОСОВАНИЕ"
+      : earlyLimitReached
+      ? "ЛИМИТ ДОСРОЧНЫХ (2/2)"
+      : earlyLockRemainSec > 0
+        ? `ДОСТУПНО ЧЕРЕЗ ${formatEarlyLock(earlyLockRemainSec)}`
+        : "ГОЛОСОВАНИЕ НЕДОСТУПНО";
 
-      <div className={styles.grid}>
-        <div className={styles.panel}>
-          <p className={styles.panelTitle}>Время</p>
-          <p className={styles.timer} aria-live="polite">
-            {stateJson?.phase === "discussion" ? formatClock(remainingSec) : "—"}
-          </p>
-          <p className={styles.phase}>
-            Фаза: {stateJson?.phase === "discussion" ? "обсуждение" : stateJson?.phase ?? "—"}
-          </p>
-        </div>
+  const votingPlayersById = useMemo(() => {
+    if (!stateJson) return {};
+    const out: Record<string, MatchVotingOverlayPlayer> = {};
+    for (const p of Object.values(stateJson.players)) {
+      out[p.id] = { id: p.id, nickname: p.nickname, avatarId: p.avatarId, isHost: p.isHost };
+    }
+    return out;
+  }, [stateJson]);
 
-        <div className={styles.panel}>
-          <p className={styles.panelTitle}>Твоя карточка</p>
-          {!me ? (
-            <p className={styles.muted}>Подключись к комнате…</p>
-          ) : me.isSpy ? (
-            <>
-              {me.spyCardUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={me.spyCardUrl} alt="" className={styles.locationImg} />
-              ) : null}
-              <p className={styles.locationName}>Ты шпион</p>
-              <p className={styles.themeLine}>
-                <strong>Тема локации:</strong> {themeLineBody}
-              </p>
-              <p className={styles.muted}>
-                Локацию и свою роль на ней знают только мирные. Тему видят все — используй её, чтобы не выделяться.
-              </p>
-              <span className={styles.spyBadge}>ШПИОН</span>
-            </>
-          ) : (
-            <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                key={`loc-${stateJson?.locationImageKey ?? ""}-${locationImgIdx}`}
-                src={locationImgShown}
-                alt=""
-                className={styles.locationImg}
-                onError={() => {
-                  setLocationImgAttempt((a) => (a < locationIdxMax ? a + 1 : a));
-                }}
-              />
-              <p className={styles.locationName}>{stateJson?.locationName ?? "Локация"}</p>
-              <p className={styles.themeLine}>
-                <strong>Тема локации:</strong> {themeLineBody}
-              </p>
-              <p className={styles.roleLine}>
-                <strong>Роль на локации:</strong> {roleLineBody}
-              </p>
-              <p className={styles.muted}>Ты мирный агент. Найди шпиона.</p>
-            </>
-          )}
-        </div>
-      </div>
+  const eliminatedPlayerIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const p of playerRows) {
+      if (p.eliminated) s.add(p.id);
+    }
+    return s;
+  }, [playerRows]);
 
-      <div className={`${styles.panel} ${styles.playerListWrap}`} style={{ marginTop: "1rem" }}>
-        <p className={styles.panelTitle}>Игроки</p>
-        {listPlayers.length > 0 ? (
-          <PlayerList
-            players={listPlayers}
-            currentPlayerId={effectivePlayerId}
-            onlinePlayers={onlineIds}
-            isHost={false}
-            layout="game"
-            hideMinPlaceholders
+  /** Заморозка пропсов на момент ухода с `phase === "voting"`, чтобы exit-анимации полосок не обрывались. */
+  const matchVotingFrozenRef = useRef<{
+    voteStage: string;
+    voteEndsAt: number;
+    voteTransitionEndsAt: number;
+    revoteA: string;
+    revoteB: string;
+    stubEliminatedId: string;
+    voteIsFinal: boolean;
+    playersById: Record<string, MatchVotingOverlayPlayer>;
+    voteBallots: Record<string, string>;
+    eliminatedPlayerIds: Set<string>;
+  } | null>(null);
+  const matchPhaseForVotingExitRef = useRef<string | undefined>(undefined);
+  const [, bumpMatchVotingOverlayHost] = useReducer((x: number) => x + 1, 0);
+
+  const debugPanelOpen = readMatchDebug();
+
+  const matchPausedUi =
+    matchPauseFromRoom.paused || (stateJson?.matchPaused === true);
+  /** Ч/Б оверлей и «ПАУЗА» на таймере только для паузы ведущего в фазе обсуждения, не во время голосования. */
+  const hostDiscussionPause = isDiscussion && matchPausedUi;
+
+  const matchPauseValue = useMemo(
+    () => ({
+      isPaused: hostDiscussionPause,
+      frozenRemainingSec: matchPauseFromRoom.remainingSec,
+    }),
+    [hostDiscussionPause, matchPauseFromRoom.remainingSec],
+  );
+
+  const hostAside =
+    isMatchHost && !isMobile ? (
+      <MatchGameHostButtons
+        layout="fixed"
+        isPaused={hostDiscussionPause}
+        pausingGame={pauseBusy}
+        onPause={pauseMatch}
+        onResume={resumeMatch}
+        onEndGame={() => void endMatch()}
+      />
+    ) : null;
+
+  const matchFooterBar = isMobile ? (
+    <FooterBar
+      variant="game"
+      leftSlot={<MatchHintQuestionButton gameId={dbRoomId ?? null} />}
+      isHost={isMatchHost}
+      gameHostPanel={
+        isMatchHost ? (
+          <MatchGameHostButtons
+            layout="footer"
+            isPaused={hostDiscussionPause}
+            pausingGame={pauseBusy}
+            onPause={pauseMatch}
+            onResume={resumeMatch}
+            onEndGame={() => void endMatch()}
           />
-        ) : (
-          <p className={styles.muted}>Список появится после синхронизации с сервером.</p>
-        )}
-      </div>
+        ) : null
+      }
+    />
+  ) : null;
 
-      <div className="card card--panel" style={{ marginTop: "1rem" }}>
-        <p className="card__title">Colyseus</p>
-        <p className="card__row">
-          URL: <span className="card__mono">{colyseusUrl}</span>
-        </p>
-        <p className="card__row">
-          Статус:{" "}
-          <span className="card__mono">
-            {status === "idle" && "ожидание"}
-            {status === "connecting" && "подключение…"}
-            {status === "ok" && "в комнате"}
-            {status === "error" && "нет соединения с game-server"}
-          </span>
-        </p>
-        {status === "error" ? (
-          <p className="card__row muted" style={{ marginTop: "0.75rem", lineHeight: 1.5 }}>
-            Проверка: <span className="card__mono">{colyseusUrl}/health</span>
-            {connectErrorDetail ? (
-              <>
-                <br />
-                <span className="card__mono" style={{ fontSize: "0.85em", wordBreak: "break-all" }}>
-                  {connectErrorDetail}
-                </span>
-              </>
-            ) : null}
-          </p>
-        ) : null}
-        {pong ? <p className="pong-line">pong: {pong}</p> : null}
-      </div>
-
-      {readMatchDebug() && playBundle ? (
+  const footerExtras = debugPanelOpen ? (
+    <>
+      {playBundle ? (
         <>
           <div className="card card--panel" style={{ marginTop: "1rem" }}>
             <p className="card__title">matchDebug: лобби (Supabase) ↔ игра</p>
@@ -857,6 +1284,10 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
                         modeTheme: stateJson.modeTheme,
                         modeRole: stateJson.modeRole,
                         playersCount: Object.keys(stateJson.players).length,
+                        voteStage: stateJson.voteStage,
+                        earlyVotesUsed: stateJson.earlyVotesUsed,
+                        earlyAckCount: Object.keys(stateJson.earlyVoteAck).length,
+                        votingDurationSec: stateJson.votingDurationSec,
                       }
                     : null,
                   matchAssignmentMessage: assignmentPatch,
@@ -894,8 +1325,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
           </div>
         </>
       ) : null}
-
-      {readMatchDebug() && matchDebugDump ? (
+      {matchDebugDump ? (
         <div className="card card--panel">
           <p className="card__title">matchDebug: полный дамп sync (Colyseus)</p>
           <pre
@@ -913,6 +1343,135 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
           </pre>
         </div>
       ) : null}
-    </div>
+    </>
+  ) : null;
+
+  matchPhaseForVotingExitRef.current = stateJson?.phase;
+
+  const voteStageNow = stateJson?.voteStage;
+  const prevVoteStage = prevVoteStageRef.current;
+  const enteredEliminationFromVotingUi =
+    voteStageNow === "elimination_splash" &&
+    prevVoteStage != null &&
+    VOTE_OVERLAY_STAGES_BEFORE_ELIMINATION_SPLASH.has(prevVoteStage);
+
+  if (enteredEliminationFromVotingUi) {
+    suppressSplashUntilVoteExitRef.current = true;
+    eliminationSplashAllowedAfterVoteExitRef.current = false;
+  }
+  if (voteStageNow !== "elimination_splash") {
+    suppressSplashUntilVoteExitRef.current = false;
+    eliminationSplashAllowedAfterVoteExitRef.current = true;
+  }
+
+  if (stateJson?.phase === "voting" && stateJson.voteStage !== "elimination_splash") {
+    matchVotingFrozenRef.current = {
+      voteStage: stateJson.voteStage,
+      voteEndsAt: stateJson.voteEndsAt,
+      voteTransitionEndsAt: stateJson.voteTransitionEndsAt,
+      revoteA: stateJson.revoteA,
+      revoteB: stateJson.revoteB,
+      stubEliminatedId: stateJson.stubEliminatedId,
+      voteIsFinal: stateJson.voteIsFinal,
+      playersById: { ...votingPlayersById },
+      voteBallots: { ...stateJson.voteBallots },
+      eliminatedPlayerIds: new Set(eliminatedPlayerIds),
+    };
+  }
+
+  const votingOverlayActive =
+    stateJson?.phase === "voting" && stateJson.voteStage !== "elimination_splash";
+
+  const needsDelayedEliminationSplash =
+    stateJson?.matchSplashType === "voting_kicked_civilian" &&
+    stateJson?.phase === "voting" &&
+    stateJson?.voteStage === "elimination_splash";
+
+  const showMatchSplashLayer =
+    Boolean(stateJson?.matchSplashType) &&
+    (!needsDelayedEliminationSplash || eliminationSplashAllowedAfterVoteExitRef.current);
+
+  prevVoteStageRef.current = voteStageNow;
+
+  return (
+    <MatchPauseProvider value={matchPauseValue}>
+      <MatchPauseGrayscaleOverlay active={hostDiscussionPause} />
+      {stateJson && showMatchSplashLayer ? (
+        <MatchColyseusSplashLayer
+          matchSplashType={stateJson.matchSplashType}
+          matchSplashAt={stateJson.matchSplashAt}
+          matchSplashEndsAt={stateJson.matchSplashEndsAt}
+          matchSplashEliminatedId={stateJson.matchSplashEliminatedId}
+          matchSplashVotePercent={stateJson.matchSplashVotePercent}
+          matchSplashEliminationGameOver={stateJson.matchSplashEliminationGameOver}
+          players={stateJson.players}
+          clockSkewMs={clockSkewMs}
+          isMatchHost={isMatchHost}
+          onVictoryHostEndGame={endMatch}
+          victoryEndGameBusy={endMatchBusy}
+        />
+      ) : null}
+      {stateJson && matchVotingFrozenRef.current ? (
+        <MatchVotingOverlay
+          active={votingOverlayActive}
+          onVotingRootExitComplete={() => {
+            if (suppressSplashUntilVoteExitRef.current) {
+              suppressSplashUntilVoteExitRef.current = false;
+              eliminationSplashAllowedAfterVoteExitRef.current = true;
+              bumpEliminationSplashAfterVoteExit();
+              return;
+            }
+            if (matchPhaseForVotingExitRef.current === "voting") return;
+            matchVotingFrozenRef.current = null;
+            bumpMatchVotingOverlayHost();
+          }}
+          room={colyseusRoom}
+          {...matchVotingFrozenRef.current}
+          currentPlayerId={effectivePlayerId}
+          clockSkewMs={clockSkewMs}
+        />
+      ) : null}
+      <DebugPanelDev
+        open={debugPanelOpen}
+        roomCode={sessionId}
+        canEndMatch={isMatchHost && !!dbRoomId}
+        endMatchBusy={endMatchBusy}
+        endMatchError={endMatchError}
+        onEndMatch={endMatch}
+        colyseusUrl={effectiveColyseusUrl}
+        connectionStatus={status}
+        connectErrorDetail={connectErrorDetail}
+        pong={pong}
+      />
+      <MatchGamePageLayout
+        isMobile={isMobile}
+        topInsetPx={debugPanelOpen ? 72 : 0}
+        themeCardValue={themeForCard}
+        locationCardValue={locationForCard}
+        roleCardValue={roleForCard}
+        isSpy={me?.isSpy === true}
+        players={listPlayers}
+        currentPlayerId={effectivePlayerId}
+        onlinePlayers={onlineIds}
+        clockDisplay={clockDisplay}
+        timerTone={timerTone}
+        timerPaused={hostDiscussionPause}
+        locationImageKey={stateJson?.locationImageKey ?? ""}
+        spyCardUrl={me?.spyCardUrl ?? ""}
+        hostAside={hostAside}
+        footerExtras={footerExtras}
+        hintGameId={dbRoomId || null}
+        footerBar={matchFooterBar}
+        earlyVoteShowPrimary={earlyShowPrimary}
+        earlyVotePrimaryLabel={`ГОЛОСОВАТЬ ${earlyAckCount}/${earlyMajority}`}
+        earlyVoteSecondaryLabel={earlySecondaryLabel}
+        earlyVoteIsActive={
+          !meEliminated && stateJson?.earlyVoteAck[effectivePlayerId] === "1"
+        }
+        onEarlyVoteToggle={() => colyseusRoomRef.current?.send(WS_CLIENT_MESSAGE.earlyVoteToggle, {})}
+        earlyVoteDisabled={status !== "ok"}
+        earlyVoteEliminated={meEliminated}
+      />
+    </MatchPauseProvider>
   );
 }

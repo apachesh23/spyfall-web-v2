@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { Settings } from "@/types";
 import { useLobbyData } from "@/features/lobby/hooks/useLobbyData";
 import { useLobbyRealtimeChannel } from "@/features/lobby/hooks/useLobbyRealtimeChannel";
 import { useIsLobbyMobile } from "@/features/lobby/hooks/useIsLobbyMobile";
 import { LobbyFooterProvider } from "@/features/lobby/contexts/LobbyFooterContext";
+import { useLobbyUiReady } from "@/features/lobby/contexts/LobbyUiReadyContext";
 import { useReactions } from "@/features/reactions/context";
 import { FooterBar } from "@/shared/components/layout/footer-bar/FooterBar";
 import { LobbyInviteBlock } from "@/features/lobby/components/LobbyInviteBlock";
@@ -19,8 +20,9 @@ import {
   PrimaryButton,
 } from "@/shared/components/ui";
 import { FullscreenLoader } from "@/shared/components/layout/route-loader/FullscreenLoader";
-import { SplashScreenDevPanel } from "@/features/splash-screen";
 import { useRouteLoaderStore } from "@/store/route-loader-store";
+import { supabase } from "@/lib/supabase/client";
+import { normalizeRoomSettings } from "@/lib/normalizeRoomSettings";
 import { IconTrash } from "@tabler/icons-react";
 import styles from "@/features/lobby/lobby-screen.module.css";
 
@@ -41,8 +43,6 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
     isHost,
     settings,
     setSettings,
-    splashEvent,
-    setSplashEvent,
     roomStatus,
     setRoomStatus,
   } = useLobbyData(code);
@@ -58,18 +58,53 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
   const [kickConfirmPlayerId, setKickConfirmPlayerId] = useState<string | null>(null);
   const router = useRouter();
   const stopGlobalLoader = useRouteLoaderStore((s) => s.stop);
+  const startGlobalLoader = useRouteLoaderStore((s) => s.start);
+  const { setUiReady } = useLobbyUiReady();
+
+  useLayoutEffect(() => {
+    startGlobalLoader();
+  }, [startGlobalLoader]);
 
   useEffect(() => {
     if (loading || error || !roomStatus) return;
     if (roomStatus === "playing") {
       const q = settings?.match_debug === true ? "?matchDebug=1" : "";
+      startGlobalLoader();
       router.replace(`/play/${code}${q}`);
     }
-  }, [loading, error, roomStatus, code, router, settings?.match_debug]);
+  }, [loading, error, roomStatus, code, router, settings?.match_debug, startGlobalLoader]);
+
+  /** Подстраховка к Realtime: иногда клиент не получает UPDATE по `rooms` и остаётся в лобби при уже `playing` в БД. */
+  useEffect(() => {
+    if (loading || error || !roomId || roomStatus !== "waiting") return;
+    const intervalMs = startingGame ? 1000 : 2500;
+    let cancelled = false;
+    const id = window.setInterval(() => {
+      void (async () => {
+        const { data, error: qErr } = await supabase
+          .from("rooms")
+          .select("status, settings")
+          .eq("code", code)
+          .maybeSingle();
+        if (cancelled || qErr || !data) return;
+        if (data.status === "playing") {
+          setRoomStatus("playing");
+          if (data.settings != null) {
+            setSettings(normalizeRoomSettings(data.settings));
+          }
+        }
+      })();
+    }, intervalMs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [loading, error, roomId, roomStatus, code, startingGame, setRoomStatus, setSettings]);
 
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout> | null = null;
     if (!loading) {
+      setUiReady(true);
       timeout = setTimeout(() => {
         setShowLoader(false);
       }, 2000);
@@ -78,7 +113,7 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
     return () => {
       if (timeout) clearTimeout(timeout);
     };
-  }, [loading, stopGlobalLoader]);
+  }, [loading, stopGlobalLoader, setUiReady]);
 
   const reactions = useReactions();
   const { sendReaction } = useLobbyRealtimeChannel({
@@ -89,7 +124,6 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
     setSettings,
     setOnlinePlayers,
     setRoomStatus,
-    setSplashEvent,
     onReaction: (payload) => reactions?.addReaction(payload),
   });
 
@@ -99,57 +133,6 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
       setStartingGame(false);
     }
   }, [startingGame, roomStatus]);
-
-  async function triggerSplash(
-    type:
-      | "system_start"
-      | "system_pause"
-      | "game_over_spy_win"
-      | "game_over_civilians_win"
-      | "voting_kicked_civilian"
-      | "spy_kill"
-      | "voting",
-    opts?: { countdownSeconds?: number; countdownLabel?: string },
-  ) {
-    if (!roomId || !currentPlayerId || !isHost) return;
-    try {
-      const body: Record<string, unknown> = {
-        roomId,
-        hostId: currentPlayerId,
-        type,
-      };
-      if (opts?.countdownSeconds != null) body.countdownSeconds = opts.countdownSeconds;
-      if (opts?.countdownLabel != null) body.countdownLabel = opts.countdownLabel;
-      const res = await fetch("/api/rooms/splash", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        console.error("Splash trigger error:", data.error);
-      }
-    } catch (e) {
-      console.error("Splash trigger error:", e);
-    }
-  }
-
-  async function dismissSplash() {
-    if (!roomId || !currentPlayerId) return;
-    try {
-      const res = await fetch("/api/rooms/splash/dismiss", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomId, playerId: currentPlayerId }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        console.error("Splash dismiss error:", data.error);
-      }
-    } catch (e) {
-      console.error("Splash dismiss error:", e);
-    }
-  }
 
   const sendReactionRef = useRef(sendReaction);
   sendReactionRef.current = sendReaction;
@@ -345,17 +328,6 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
 
   return (
     <>
-      <div style={{ display: "none" }} aria-hidden>
-        <SplashScreenDevPanel
-          splashEvent={splashEvent}
-          isHost={!!isHost}
-          roomId={roomId}
-          currentPlayerId={currentPlayerId}
-          players={players}
-          onTriggerSplash={triggerSplash}
-          onDismissSplash={dismissSplash}
-        />
-      </div>
       <FullscreenLoader show={showLoader} />
       <LobbyFooterProvider
         value={{

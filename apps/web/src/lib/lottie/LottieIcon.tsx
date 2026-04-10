@@ -1,6 +1,7 @@
 'use client';
 
-import { useRef, useEffect, useState } from 'react';
+import type React from 'react';
+import { useCallback, useRef, useEffect, useState } from 'react';
 import Lottie, { type LottieRefCurrentProps } from 'lottie-react';
 
 type LottieIconProps = {
@@ -24,6 +25,16 @@ type LottieIconProps = {
   onComplete?: () => void;
   /** Играть анимацию туда‑сюда: вперёд, потом назад, снова вперёд (для фоновых эффектов) */
   pingPong?: boolean;
+  /**
+   * Множитель скорости (`AnimationItem.setSpeed`): `1` = как в исходнике, `0.5` = вдвое медленнее.
+   * Применяется после монтирования плеера (не в `useLayoutEffect` — иначе ref ещё пуст).
+   */
+  speed?: number;
+  /**
+   * Заполнить родителя: контейнер 100%×100%, SVG/canvas как `object-fit: cover` + `resize()` под lottie-web.
+   * Без этого библиотека держит размер из JSON (например 512×512), и обычный CSS снаружи не растягивает рендер.
+   */
+  fillParent?: boolean;
   className?: string;
   size?: number;
 };
@@ -39,10 +50,13 @@ export function LottieIcon({
   loopSegment,
   onComplete,
   pingPong = false,
+  speed = 1,
+  fillParent = false,
   className = '',
   size,
 }: LottieIconProps) {
   const lottieRef = useRef<LottieRefCurrentProps>(null);
+  const wrapRef = useRef<HTMLSpanElement | null>(null);
   const [animationData, setAnimationData] = useState<object | null>(null);
   const pingDirectionRef = useRef<1 | -1>(1);
   const playOnceStartedRef = useRef(false);
@@ -59,6 +73,43 @@ export function LottieIcon({
       cancelled = true;
     };
   }, [src]);
+
+  const applyPlaybackSpeed = useCallback(() => {
+    if (!animationData) return;
+    const rate = Number.isFinite(speed) && speed > 0 ? speed : 1;
+    const api = lottieRef.current;
+    api?.setSpeed?.(rate);
+  }, [animationData, speed]);
+
+  const triggerLottieResize = () => {
+    const item = (lottieRef.current as unknown as { animationItem?: { resize?: () => void } } | null)
+      ?.animationItem;
+    item?.resize?.();
+  };
+
+  /**
+   * Скорость: родительский `useLayoutEffect` выполняется до `useEffect` в lottie-react,
+   * где создаётся `AnimationItem` — поэтому только `useEffect` + `onDOMLoaded` + rAF.
+   */
+  useEffect(() => {
+    if (!animationData) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      applyPlaybackSpeed();
+      raf2 = requestAnimationFrame(applyPlaybackSpeed);
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [animationData, applyPlaybackSpeed]);
+
+  useEffect(() => {
+    if (!fillParent || !animationData || !wrapRef.current) return;
+    const ro = new ResizeObserver(() => triggerLottieResize());
+    ro.observe(wrapRef.current);
+    return () => ro.disconnect();
+  }, [fillParent, animationData]);
 
   useEffect(() => {
     if (!playOnHover || !lottieRef.current) return;
@@ -79,16 +130,38 @@ export function LottieIcon({
     if (!playOnce) playOnceStartedRef.current = false;
   }, [playOnce]);
 
+  /** Новый JSON — можно снова проиграть playOnce (тот же компонент, другой src). */
   useEffect(() => {
-    if (!playOnce || !lottieRef.current || !animationData || playOnceStartedRef.current) return;
+    playOnceStartedRef.current = false;
+  }, [src]);
+
+  const startPlayOnceFromRef = useCallback(() => {
+    if (!playOnce || playOnceStartedRef.current || !lottieRef.current) return;
     playOnceStartedRef.current = true;
-    const inst = lottieRef.current as unknown as { playSegments?: (segments: number[], forceFlag: boolean) => void } | null;
+    const inst = lottieRef.current as unknown as {
+      playSegments?: (segments: number[], forceFlag: boolean) => void;
+    } | null;
     if (playSegment && inst?.playSegments) {
       inst.playSegments([playSegment[0], playSegment[1]], true);
     } else {
       lottieRef.current.goToAndPlay(0, true);
     }
-  }, [playOnce, playSegment, animationData]);
+  }, [playOnce, playSegment]);
+
+  const handleDomLoaded = () => {
+    requestAnimationFrame(() => {
+      applyPlaybackSpeed();
+      if (fillParent) triggerLottieResize();
+      // autoplay=false при playOnce — старт только после готовности lottie-web (ранний useEffect часто ловил пустой ref)
+      startPlayOnceFromRef();
+    });
+  };
+
+  useEffect(() => {
+    if (!playOnce || !animationData) return;
+    const t = window.setTimeout(() => startPlayOnceFromRef(), 120);
+    return () => window.clearTimeout(t);
+  }, [playOnce, animationData, startPlayOnceFromRef]);
 
   // Зацикленный сегмент кадров (idle)
   useEffect(() => {
@@ -107,15 +180,25 @@ export function LottieIcon({
     inst?.goToAndPlay?.(0, true);
   }, [pingPong, animationData]);
 
-  const sizeStyle = size != null ? { width: size, height: size } : undefined;
+  const dimensionStyle: React.CSSProperties | undefined = fillParent
+    ? { width: '100%', height: '100%', display: 'block' }
+    : size != null
+      ? { width: size, height: size }
+      : undefined;
 
-  if (!animationData) return <span className={className} style={sizeStyle} aria-hidden />;
+  if (!animationData) {
+    return <span ref={wrapRef} className={className} style={dimensionStyle} aria-hidden />;
+  }
 
   return (
-    <span className={className} style={sizeStyle} aria-hidden>
+    <span ref={wrapRef} className={className} style={dimensionStyle} aria-hidden>
       <Lottie
         lottieRef={lottieRef}
         animationData={animationData}
+        onDOMLoaded={handleDomLoaded}
+        rendererSettings={
+          fillParent ? { preserveAspectRatio: 'xMidYMid slice' } : undefined
+        }
         loop={pingPong ? false : !loopSegment && loop && !playOnce}
         autoplay={pingPong ? false : !loopSegment && (loop || autoplayOnce) && !playOnce}
         onComplete={
@@ -139,7 +222,7 @@ export function LottieIcon({
                   }
                 : undefined
         }
-        style={sizeStyle}
+        style={dimensionStyle}
       />
     </span>
   );

@@ -6,6 +6,9 @@
     "dev": "concurrently -k -n web,game -c cyan,magenta \"npm run dev --workspace=@spyfall/web\" \"npm run dev --workspace=@spyfall/game-server\"",
     "dev:web": "npm run dev --workspace=@spyfall/web",
     "dev:server": "npm run dev --workspace=@spyfall/game-server",
+    "start": "concurrently -k -n web,game -c cyan,magenta \"npm run start --workspace=@spyfall/web\" \"npm run start --workspace=@spyfall/game-server\"",
+    "start:web": "npm run start --workspace=@spyfall/web",
+    "start:server": "npm run start --workspace=@spyfall/game-server",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present"
   },

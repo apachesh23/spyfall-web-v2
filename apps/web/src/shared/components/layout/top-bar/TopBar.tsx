@@ -61,7 +61,12 @@ export function TopBar() {
   const [locale, setLocaleState] = useState<LocaleCode>('ru');
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
   const langDropdownRef = useRef<HTMLDivElement>(null);
-  const [langDropdownRect, setLangDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [langDropdownRect, setLangDropdownRect] = useState<{
+    left: number;
+    width: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
   const router = useRouter();
   const pathname = usePathname();
   const isMobile = useIsLobbyMobile();
@@ -248,19 +253,48 @@ export function TopBar() {
     if (!langDropdownOpen || typeof document === 'undefined') return;
     const wrap = langDropdownRef.current;
     if (!wrap) return;
-    const rect = wrap.getBoundingClientRect();
-    setLangDropdownRect({ top: rect.bottom + 6, left: rect.left, width: rect.width });
-    return () => setLangDropdownRect(null);
-  }, [langDropdownOpen]);
+    const place = () => {
+      const rect = wrap.getBoundingClientRect();
+      if (isMobile) {
+        setLangDropdownRect({
+          left: rect.left,
+          width: rect.width,
+          bottom: window.innerHeight - rect.top + 6,
+        });
+      } else {
+        setLangDropdownRect({
+          left: rect.left,
+          width: rect.width,
+          top: rect.bottom + 6,
+        });
+      }
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('resize', place);
+      setLangDropdownRect(null);
+    };
+  }, [langDropdownOpen, isMobile]);
 
   const goTo = (href: string) => {
+    const targetPath = href.split("?")[0] ?? href;
+    const currentPath = (pathname ?? "").split("?")[0];
+
+    // Уже на этой странице: push не сработает, лоадер не снимется (см. MatchScreen / лобби).
+    if (targetPath === currentPath) {
+      closeMenu();
+      router.refresh();
+      return;
+    }
+
     // Глобальный лоадер для навигации между основными страницами (Create / Invite / Room)
     useRouteLoaderStore.getState().start();
     closeMenu();
 
     // Для лёгких страниц (Create / Invite) даём микропаузу,
     // чтобы лоадер успел накрыть старый UI до подмены контента.
-    const needsDelay = href === '/' || href.startsWith('/invite');
+    const needsDelay = href === "/" || href.startsWith("/invite");
     const delayMs = needsDelay ? 500 : 0;
 
     if (delayMs > 0) {
@@ -523,14 +557,16 @@ export function TopBar() {
                           className={`glass ${styles.menuLanguageDropdown} ${styles.menuLanguageDropdownPortal}`}
                           style={{
                             position: 'fixed',
-                            top: langDropdownRect.top,
                             left: langDropdownRect.left,
                             width: langDropdownRect.width,
                             zIndex: 130,
+                            ...(langDropdownRect.bottom != null
+                              ? { bottom: langDropdownRect.bottom, top: "auto" }
+                              : { top: langDropdownRect.top ?? 0, bottom: "auto" }),
                           }}
-                          initial={{ opacity: 0, y: -4 }}
+                          initial={{ opacity: 0, y: isMobile ? 6 : -4 }}
                           animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -4 }}
+                          exit={{ opacity: 0, y: isMobile ? 6 : -4 }}
                           transition={{ duration: 0.18 }}
                           role="listbox"
                         >

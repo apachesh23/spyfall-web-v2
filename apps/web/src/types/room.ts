@@ -2,15 +2,6 @@
 
 export type RoomStatus = 'waiting' | 'playing' | 'finished';
 
-/** Событие баннера в комнате (показ всем через realtime) */
-export type SplashEventPayload = {
-  type: string;
-  countdownSeconds?: number;
-  countdownLabel?: string;
-  at: string; // ISO timestamp
-  ends_at?: string; // ISO timestamp (server authoritative end time)
-};
-
 export type Settings = {
   /** Заполняется при старте матча; все клиенты делают joinById в одну Colyseus-комнату (без гонки joinOrCreate). */
   colyseus_room_id?: string;
@@ -38,7 +29,6 @@ export type Room = {
   host_id: string;
   status: RoomStatus;
   settings: Settings;
-  splash_event?: SplashEventPayload | null;
   location_id?: string;
   selected_theme?: string | null;
   spy_ids?: string[];

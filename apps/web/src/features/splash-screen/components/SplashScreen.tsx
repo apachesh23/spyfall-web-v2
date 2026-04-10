@@ -68,6 +68,18 @@ const VICTORY_BALL_SIZE = 200;
 
 const easeSmooth = [0.22, 1, 0.36, 1] as const;
 
+/** Звук тика после exit-анимации смены цифры (`AnimatePresence` ~0.2s), чтобы не опережать UI. */
+const COUNTDOWN_TICK_SOUND_DELAY_MS = 220;
+
+/** Один раз на экземпляр сплэша (в т.ч. React Strict Mode двойной mount). */
+const splashSfxOnceIds = new Set<string>();
+function consumeSplashSfxOnce(id: string): boolean {
+  if (splashSfxOnceIds.has(id)) return false;
+  splashSfxOnceIds.add(id);
+  window.setTimeout(() => splashSfxOnceIds.delete(id), 5000);
+  return true;
+}
+
 const frontVariants = {
   hidden: { clipPath: 'inset(0 100% 0 0)' },
   visible: {
@@ -92,6 +104,25 @@ const backVariants = {
   },
 };
 
+/** Как в MatchVotingOverlay: оставшиеся целые секунды до дедлайна с учётом сдвига часов. */
+function syncedRemainingSec(
+  endsAtIso: string | undefined,
+  eventAtIso: string | undefined,
+  totalSec: number,
+  skewMs: number,
+): number {
+  const now = Date.now() + skewMs;
+  if (endsAtIso) {
+    const end = new Date(endsAtIso).getTime();
+    return Math.max(0, Math.ceil((end - now) / 1000) - 1);
+  }
+  if (eventAtIso) {
+    const elapsed = Math.floor((now - new Date(eventAtIso).getTime()) / 1000);
+    return Math.max(0, totalSec - (elapsed < 0 ? 0 : elapsed));
+  }
+  return Math.max(0, totalSec);
+}
+
 export function SplashScreen({
   type,
   onClose,
@@ -100,9 +131,11 @@ export function SplashScreen({
   title: titleProp,
   subtitle: subtitleProp,
   static: staticProp,
-  showContinueButton = false,
   eventAt: eventAtProp,
   endsAt: endsAtProp,
+  clockSkewMs = 0,
+  onVictoryHostEndGame,
+  victoryEndGameBusy = false,
   players = [],
   spyIds,
   eliminatedPlayer,
@@ -157,31 +190,24 @@ export function SplashScreen({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- eventAtProp forces re-pick on new splash events
   }, [type, eventAtProp]);
 
-  const initialCount = (() => {
-    if (!hasCountdown) return countdownSeconds;
-
-    // Приоритет: если сервер дал endsAt — считаем строго от него
-    if (endsAtProp) {
-      const diffSec = Math.floor(
-        (new Date(endsAtProp).getTime() - Date.now()) / 1000
-      );
-      return diffSec > 0 ? diffSec : 0;
-    }
-
-    // Иначе fallback: eventAt + countdownSeconds (старое поведение)
-    if (!eventAtProp) return countdownSeconds;
-
-    const elapsed = Math.floor(
-      (Date.now() - new Date(eventAtProp).getTime()) / 1000
-    );
-    const remaining = countdownSeconds - (elapsed < 0 ? 0 : elapsed);
-    return remaining > 0 ? remaining : 0;
-  })();
-
-  const [count, setCount] = useState(initialCount);
+  const [count, setCount] = useState(() =>
+    hasCountdown
+      ? syncedRemainingSec(endsAtProp, eventAtProp, countdownSeconds, clockSkewMs)
+      : 0,
+  );
   const [showCountdownNumber, setShowCountdownNumber] = useState(false);
-  const prevCountRef = useRef(initialCount);
+  const prevCountRef = useRef(count);
   const countdownClosedRef = useRef(false);
+
+  useEffect(() => {
+    countdownClosedRef.current = false;
+    setShowCountdownNumber(false);
+    if (!hasCountdown) {
+      setCount(0);
+      return;
+    }
+    setCount(syncedRemainingSec(endsAtProp, eventAtProp, countdownSeconds, clockSkewMs));
+  }, [type, hasCountdown, endsAtProp, eventAtProp, countdownSeconds, clockSkewMs]);
   const handleClose = useCallback(() => {
     if (!isStatic && onClose) {
       playVFX('woosh_out');
@@ -189,15 +215,29 @@ export function SplashScreen({
     }
   }, [isStatic, onClose]);
 
-  const handleCloseWithWoosh = useCallback(() => {
+  const handleVictoryHostEndGame = useCallback(() => {
     playVFX('woosh_out');
-    onClose?.();
-  }, [onClose]);
+    onVictoryHostEndGame?.();
+  }, [onVictoryHostEndGame]);
 
-  // Woosh на вылет баннера (все типы)
+  // Woosh на вылет баннера; изгнание — отдельный пакет (woosh + lose + ball), без дубля strict mode
   useEffect(() => {
+    if (type === 'voting_kicked_civilian') return;
+    const uid = `woosh-${type}-${endsAtProp ?? ''}-${eventAtProp ?? ''}`;
+    if (!consumeSplashSfxOnce(uid)) return;
     playVFX('woosh_in');
-  }, []);
+  }, [type, endsAtProp, eventAtProp]);
+
+  useEffect(() => {
+    if (type !== 'voting_kicked_civilian') return;
+    const uid = `vk-${endsAtProp ?? ''}-${eventAtProp ?? ''}`;
+    if (!consumeSplashSfxOnce(uid)) return;
+    playVFX('woosh_in');
+    playVFX('lose');
+    const delayMs = Math.round((victoryFirstWaveDelay + VICTORY_FIRST_WAVE.topBlockDelay) * 500);
+    const t = setTimeout(() => playVFX('ball_win'), delayMs);
+    return () => clearTimeout(t);
+  }, [type, endsAtProp, eventAtProp]);
 
   // Победа: два звука при появлении контента
   useEffect(() => {
@@ -207,12 +247,6 @@ export function SplashScreen({
     return () => clearTimeout(t);
   }, [isVictoryType]);
 
-  // Выгнали мирного: lose
-  useEffect(() => {
-    if (type !== 'voting_kicked_civilian') return;
-    playVFX('lose');
-  }, [type]);
-
   // Убийство: head-gore-explosion и liquid-or-blood
   useEffect(() => {
     if (type !== 'spy_kill') return;
@@ -221,53 +255,60 @@ export function SplashScreen({
     return () => clearTimeout(t);
   }, [type]);
 
-  // ball.json: звук при появлении шарика (все профильные баннеры)
+  // ball.json: звук при появлении шарика (профильные; изгнание — в пакете выше)
   useEffect(() => {
-    if (!isProfileType) return;
+    if (!isProfileType || type === 'voting_kicked_civilian') return;
     const delayMs = Math.round((victoryFirstWaveDelay + VICTORY_FIRST_WAVE.topBlockDelay) * 500);
     const t = setTimeout(() => playVFX('ball_win'), delayMs);
     return () => clearTimeout(t);
-  }, [isProfileType]);
+  }, [isProfileType, type]);
 
-  // Цифру монтируем только после задержки 0.85s, чтобы 5 появлялась «из пустоты», а не была уже отрисована
+  // Цифру показываем после задержки; тик — только при смене count (ниже), без лишнего countdown_sec
   useEffect(() => {
     if (!hasCountdown) return;
-    const t = setTimeout(() => {
-      setShowCountdownNumber(true);
-      playVFX('countdown_sec');
-    }, 850);
+    const t = setTimeout(() => setShowCountdownNumber(true), 850);
     return () => clearTimeout(t);
   }, [hasCountdown]);
 
-  // Звук на каждую секунду счётчика: countdown_sec на 5,4,3,2,1 и countdown_last на 0
+  // Звук на смену секунды: last на 0 сразу; sec — после анимации смены цифры
   useEffect(() => {
     if (!hasCountdown || !showCountdownNumber) return;
-    if (count < prevCountRef.current) {
-      if (count === 0) playVFX('countdown_last');
-      else playVFX('countdown_sec');
+    if (count >= prevCountRef.current) {
+      prevCountRef.current = count;
+      return;
     }
     prevCountRef.current = count;
+    if (count === 0) {
+      playVFX('countdown_last');
+      return;
+    }
+    const t = window.setTimeout(() => playVFX('countdown_sec'), COUNTDOWN_TICK_SOUND_DELAY_MS);
+    return () => window.clearTimeout(t);
   }, [hasCountdown, showCountdownNumber, count]);
 
-  // Обратный отсчёт: стартуем только после появления цифры (0.85s), чтобы 5 была видна полную секунду
+  // Синхронизация с серверным endsAt / eventAt (как таймер голосования)
   useEffect(() => {
     if (!hasCountdown) return;
-    if (count <= 0) {
-      if (!countdownClosedRef.current) {
-        countdownClosedRef.current = true;
-        const t = setTimeout(() => {
-          playVFX('woosh_out');
-          onClose?.();
-        }, 800);
-        return () => clearTimeout(t);
-      }
-      return undefined;
+    const tick = () => {
+      setCount(syncedRemainingSec(endsAtProp, eventAtProp, countdownSeconds, clockSkewMs));
+    };
+    tick();
+    const id = window.setInterval(tick, 250);
+    return () => clearInterval(id);
+  }, [hasCountdown, endsAtProp, eventAtProp, countdownSeconds, clockSkewMs]);
+
+  useEffect(() => {
+    if (!hasCountdown || count > 0) return;
+    if (!showCountdownNumber) return;
+    if (!countdownClosedRef.current) {
+      countdownClosedRef.current = true;
+      const t = window.setTimeout(() => {
+        playVFX('woosh_out');
+        onClose?.();
+      }, 800);
+      return () => clearTimeout(t);
     }
-    if (!showCountdownNumber) return; // интервал только после появления первой цифры
-    const t = setInterval(() => {
-      setCount((c) => (c > 0 ? c - 1 : 0));
-    }, 1000);
-    return () => clearInterval(t);
+    return undefined;
   }, [hasCountdown, showCountdownNumber, count, onClose]);
 
   const colors = config.colors;
@@ -312,7 +353,7 @@ export function SplashScreen({
               >
                 {isVictoryType ? null : (hasCountdown || subtitle) ? (
                   <motion.div
-                    className={`${styles.backLayerText} ${hasCountdown ? styles.countdownRow : ''}`}
+                    className={styles.backLayerText}
                     initial={{ opacity: 0 }}
                     animate={{
                       opacity: 1,
@@ -327,14 +368,14 @@ export function SplashScreen({
                     }}
                   >
                     {hasCountdown ? (
-                      <>
+                      <div className={styles.countdownRow}>
                         <span className={styles.countdownLabel}>{countdownLabel}</span>
                         <motion.span
                           className={styles.countdownNumberWrap}
                           initial={{ opacity: 0 }}
                           animate={{
                             opacity: 1,
-                            transition: { delay: 0.85, duration: 0.25 },
+                            transition: { delay: 0, duration: 0.25 },
                           }}
                           exit={{ opacity: 0 }}
                         >
@@ -356,7 +397,7 @@ export function SplashScreen({
                             </AnimatePresence>
                           )}
                         </motion.span>
-                      </>
+                      </div>
                     ) : (
                       subtitle
                     )}
@@ -560,20 +601,20 @@ export function SplashScreen({
               </motion.div>
             )}
           </div>
-          {(type === 'system_pause' || VICTORY_TYPES.includes(type)) &&
-            onClose &&
-            showContinueButton && (
+          {isVictoryType && onVictoryHostEndGame ? (
             <div className={styles.continueWrap}>
               <PrimaryButton
+                type="button"
                 withIcon={false}
-                onClick={handleCloseWithWoosh}
+                onClick={handleVictoryHostEndGame}
+                disabled={victoryEndGameBusy}
                 soundClick="click"
                 soundHover="hover"
               >
-                {type === "system_pause" ? "ПРОДОЛЖИТЬ" : "ЗАВЕРШИТЬ ИГРУ"}
+                ЗАВЕРШИТЬ ИГРУ
               </PrimaryButton>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </motion.div>

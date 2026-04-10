@@ -27,11 +27,22 @@ export type MatchJoinOptions = {
   playerId: string;
   nickname: string;
   discussionDurationMs?: number;
+  /** Длительность фазы голосования (мс), из настроек лобби */
+  votingDurationMs?: number;
 };
 
 /** Client → server message types (string payloads for a minimal template) */
 export const WS_CLIENT_MESSAGE = {
   ping: "ping",
+  /** Ведущий: пауза обсуждения (сервер фиксирует дедлайн). */
+  matchPause: "matchPause",
+  /** Ведущий: продолжить — дедлайн сдвигается на время паузы. */
+  matchResume: "matchResume",
+  /** Досрочное голосование: переключить своё согласие (>50% — старт). */
+  earlyVoteToggle: "earlyVoteToggle",
+  /** Активная фаза голосования: голос за игрока `{ targetId }`. */
+  voteCast: "voteCast",
+  voteSkip: "voteSkip",
 } as const;
 
 /** Server → client: тема/роли для карточки (дубль state, если декод Schema на клиенте глючит). */

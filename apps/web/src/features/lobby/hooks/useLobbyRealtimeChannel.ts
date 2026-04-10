@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { normalizeRoomSettings } from "@/lib/normalizeRoomSettings";
-import { useRouteLoaderStore } from "@/store/route-loader-store";
-import type { Player, Settings, SplashEventPayload, RoomStatus } from "@/types";
+import type { Player, Settings, RoomStatus } from "@/types";
 import { isValidAvatarId, DEFAULT_AVATAR_ID } from "@/lib/avatars";
 
 export type ReactionPayload = { playerId: string; reactionId: number };
@@ -19,7 +18,6 @@ type UseLobbyRealtimeChannelProps = {
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   setOnlinePlayers: React.Dispatch<React.SetStateAction<Set<string>>>;
   setRoomStatus?: React.Dispatch<React.SetStateAction<RoomStatus | null>>;
-  setSplashEvent?: React.Dispatch<React.SetStateAction<SplashEventPayload | null>>;
   onReaction?: (payload: ReactionPayload) => void;
 };
 
@@ -31,7 +29,6 @@ export function useLobbyRealtimeChannel({
   setSettings,
   setOnlinePlayers,
   setRoomStatus,
-  setSplashEvent,
   onReaction,
 }: UseLobbyRealtimeChannelProps) {
   const router = useRouter();
@@ -125,19 +122,7 @@ export function useLobbyRealtimeChannel({
           setSettings(normalizeRoomSettings(newRoom.settings));
         }
 
-        if (newRoom.splash_event !== oldRoom.splash_event) {
-          setSplashEvent?.((newRoom.splash_event as SplashEventPayload | null) ?? null);
-        }
-
-        if (newRoom.status === "playing" && oldRoom.status !== "playing") {
-          useRouteLoaderStore.getState().start();
-          const rs = newRoom.settings;
-          const raw =
-            rs && typeof rs === "object" && !Array.isArray(rs) ? (rs as Record<string, unknown>) : {};
-          const debug =
-            raw.match_debug === true || raw.match_debug === "true" || raw.match_debug === 1;
-          router.push(`/play/${code}${debug ? "?matchDebug=1" : ""}`);
-        }
+        /* Переход на /play только из LobbyScreen (start + router.replace), иначе дубль навигации и лоадер без stop(). */
       },
     );
 
@@ -195,7 +180,6 @@ export function useLobbyRealtimeChannel({
     setSettings,
     setOnlinePlayers,
     setRoomStatus,
-    setSplashEvent,
     router,
   ]);
 

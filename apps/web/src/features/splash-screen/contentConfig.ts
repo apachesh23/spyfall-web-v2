@@ -27,10 +27,7 @@ export const DEATH_LOTTIES: string[] = [
   '/lottie/splash/death4.json',
 ];
 
-/** Дефолтные заголовок и подпись для каждого типа (для системных уже заданы). */
 export const SPLASH_CONTENT: Record<SplashType, { title: string; subtitle?: string }> = {
-  system_start: { title: 'ГОТОВЫ ?', subtitle: '' },
-  system_pause: { title: 'Игра на паузе', subtitle: 'Ожидаем ведущего' },
   game_over_spy_win: { title: 'ШПИОН УГАДАЛ ЛОКАЦИЮ', subtitle: '' },
   game_over_spy_win_voting: { title: 'ШПИОН ПОБЕДИЛ', subtitle: '' },
   game_over_civilians_win: { title: 'АГЕНТЫ ПОБЕДИЛИ', subtitle: '' },

@@ -1,0 +1,248 @@
+/**
+ * Стили декора полос / HUD для `votingDecoPrimitives`, `VotingHeadlineStrips`, `VotingSubtitleStrip`.
+ * Позиции слоёв — в `voting.config.ts`.
+ */
+
+/* Полноэкранный декор поверх разметки. */
+.mediaDecoRotateWrap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+/* Вторая композиция (HUD / таймер): поверх центра при необходимости */
+.mediaDecoRotateWrapHud {
+  position: absolute;
+  z-index: 31;
+  pointer-events: none;
+}
+
+.mediaDecoScaleRoot {
+  display: inline-block;
+  line-height: 0;
+  transform-origin: top left;
+}
+
+.mediaDecoStack {
+  position: relative;
+  width: var(--composition-design-width-px, 960px);
+  line-height: 0;
+  overflow: hidden;
+}
+
+.mediaDecoLayers {
+  position: absolute;
+  inset: 0;
+}
+
+.mediaDecoLayer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.mediaDecoLayerBottomStripe {
+  z-index: 0;
+}
+
+.mediaDecoLayerBottomText {
+  z-index: 1;
+}
+
+.mediaDecoLayerBottomShadow {
+  z-index: 2;
+}
+
+.mediaDecoLayerTopStripe {
+  z-index: 3;
+}
+
+.mediaDecoLayerTransform {
+  transform-origin: center center;
+  will-change: transform;
+}
+
+.mediaDecoStripUnit {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  vertical-align: top;
+}
+
+.mediaDecoImg {
+  display: block;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.mediaDecoImgSizerHidden {
+  visibility: hidden;
+}
+
+@keyframes mediaDecoMarqueeToLeft {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes mediaDecoMarqueeToRight {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.mediaDecoTextOnStripe {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Статичный текст по центру полоски (HUD), без marquee */
+.mediaDecoTextStaticCenter {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+  padding: 0 0.5em;
+  box-sizing: border-box;
+  overflow: hidden;
+  pointer-events: none;
+  color: #000;
+  font-family: var(--font-tektur), Tektur, monospace;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.mediaDecoTextStaticCenter .bottomStripText {
+  transform: none;
+  color: #000;
+}
+
+.mediaDecoTextStaticCenter .countdownNumberWrap,
+.mediaDecoTextStaticCenter .countdownNumber {
+  color: #000;
+}
+
+.mediaDecoMarqueeTrack {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: max-content;
+  height: 100%;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+.mediaDecoMarqueeTrackLeft {
+  animation-name: mediaDecoMarqueeToLeft;
+  animation-duration: var(--marquee-duration, 22s);
+}
+
+.mediaDecoMarqueeTrackRight {
+  animation-name: mediaDecoMarqueeToRight;
+  animation-duration: var(--marquee-duration, 22s);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mediaDecoMarqueeTrackLeft,
+  .mediaDecoMarqueeTrackRight {
+    animation: none;
+    transform: none;
+  }
+}
+
+.mediaDecoMarqueeSegment {
+  display: inline-flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.mediaDecoRepeatedRow {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  color: #000;
+  font-family: var(--font-tektur), Tektur, monospace;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.mediaDecoRepeatedPhrase {
+  line-height: 1;
+}
+
+.mediaDecoDotCircle {
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #000;
+  box-sizing: border-box;
+}
+
+.bottomStripText {
+  color: white;
+  font-family: var(--font-tektur), Tektur, monospace;
+  font-size: clamp(1.5rem, 2.5vw, 2rem);
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.35em;
+  transform: var(--bottom-strip-text-rotate);
+}
+
+.bottomStripText.countdownRow {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.35em;
+}
+
+.bottomStripLabel {
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.countdownNumberWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4em;
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.countdownNumber {
+  display: inline-block;
+  text-align: center;
+  transform-origin: center center;
+  font-weight: 600;
+}

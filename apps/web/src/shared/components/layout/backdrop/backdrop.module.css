@@ -14,6 +14,13 @@
   left: 0;
 }
 
+/* Пока матч не готов: тот же цвет, что у FullscreenLoader (без видео) */
+.loaderSolidFill {
+  position: absolute;
+  inset: 0;
+  background: var(--spyfall-route-loader-bg, #18191a);
+}
+
 @media (display-mode: standalone) {
   .fillLayer {
     position: fixed;

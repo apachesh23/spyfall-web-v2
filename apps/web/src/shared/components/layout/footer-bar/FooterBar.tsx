@@ -18,10 +18,12 @@ type FooterBarProps = {
   inviteCode?: string;
   /** Для variant='game': контент левой ячейки (кнопка подсказки). */
   leftSlot?: ReactNode;
-  /** Для variant='game': показывать кнопку «Панель ведущего». */
+  /** Для variant='game': показывать кнопку «Панель управления». */
   isHost?: boolean;
-  /** Для variant='game': по клику открыть панель ведущего. */
+  /** Для variant='game': доп. колбэк при открытии панели (опционально). */
   onHostPanelClick?: () => void;
+  /** Для variant='game': контент оверлея «Панель управления» (пауза / завершить). */
+  gameHostPanel?: ReactNode;
 };
 
 export function FooterBar({
@@ -30,9 +32,11 @@ export function FooterBar({
   leftSlot,
   isHost: isHostProp,
   onHostPanelClick,
+  gameHostPanel,
 }: FooterBarProps) {
   const [shareOpen, setShareOpen] = useState(false);
   const [hostPanelOpen, setHostPanelOpen] = useState(false);
+  const [gameHostPanelOpen, setGameHostPanelOpen] = useState(false);
   const lobby = useLobbyFooter();
   const reactions = useReactions();
   const reactionsButtonRef = useRef<HTMLButtonElement>(null);
@@ -84,20 +88,25 @@ export function FooterBar({
               Панель управления
             </motion.button>
           )}
-          {variant === 'game' && isHost && onHostPanelClick && (
+          {variant === 'game' &&
+            isHost &&
+            (gameHostPanel != null || onHostPanelClick) && (
             <motion.button
               type="button"
               className={`${styles.centerTextButton} glass glass-hover`}
               onClick={() => {
                 playUI('click');
-                onHostPanelClick();
+                onHostPanelClick?.();
+                if (gameHostPanel != null) {
+                  setGameHostPanelOpen(true);
+                }
               }}
               onMouseEnter={() => playUI('hover')}
-              aria-label="Панель ведущего"
+              aria-label="Панель управления"
               whileTap={{ scale: 0.98 }}
               transition={{ duration: 0.08 }}
             >
-              Панель ведущего
+              Панель управления
             </motion.button>
           )}
         </div>
@@ -149,6 +158,36 @@ export function FooterBar({
               onClick={(e: MouseEvent) => e.stopPropagation()}
             >
               <LobbyInviteBlock code={inviteCode} />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Панель управления в матче (ведущий) */}
+      <AnimatePresence>
+        {gameHostPanelOpen && variant === 'game' && gameHostPanel && (
+          <motion.div
+            className={styles.overlayBackdropHost}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div
+              className={styles.overlayCloseArea}
+              onClick={() => setGameHostPanelOpen(false)}
+              aria-hidden
+            />
+            <motion.div
+              className={styles.overlayContentHost}
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ duration: 0.2 }}
+              onClick={(e: MouseEvent) => e.stopPropagation()}
+              onPointerDown={(e: PointerEvent) => e.stopPropagation()}
+            >
+              <div className={styles.gameHostPanelBody}>{gameHostPanel}</div>
             </motion.div>
           </motion.div>
         )}

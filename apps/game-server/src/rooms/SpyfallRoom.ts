@@ -11,6 +11,35 @@ type SpyfallGameState = InstanceType<typeof GameState>;
 
 /** Синхронизировать с packages/shared `DEFAULT_DISCUSSION_DURATION_MS`. */
 const DEFAULT_DISCUSSION_DURATION_MS = 15 * 60 * 1000;
+const DEFAULT_VOTING_DURATION_MS = 60_000;
+
+/**
+ * PROD: первое досрочное не раньше чем через 3 мин после старта; cooldown между досрочными — 3 мин.
+ * Сейчас 10 с — только для разработки (вернуть 3 * 60 * 1000 перед релизом).
+ */
+const FIRST_EARLY_VOTE_AFTER_MS = 10_000;
+const EARLY_VOTE_COOLDOWN_MS = 10_000;
+
+/** Сплэш изгнания после голосования (синхрон с клиентом через matchSplashEndsAt). */
+const ELIMINATION_SPLASH_MS = 10_000;
+/**
+ * Клиент показывает сплэш только после exit оверлея голосования (~MatchVoteRoot strip close + fade).
+ * Сдвигаем matchSplashAt/EndsAt, чтобы таймер с 10 с и тик сервера совпадали с моментом появления UI.
+ * Подстрой под `getStripCloseMotionWindowSec` + overlayFade в apps/web MatchVoteRoot.
+ */
+const ELIMINATION_SPLASH_REVEAL_PAD_MS = 900;
+/**
+ * Временно увеличено для тестов (кандидаты на повтор / голосование не состоялось).
+ * Перед релизом вернуть порядка 5_000.
+ */
+/** Пауза с оверлеем (ничья / не состоялось / повтор не состоялось) перед следующим шагом. */
+const VOTE_INTERMISSION_UI_MS = 5_000;
+/** Добавка к дедлайнам таймеров голосования: клиент показывает 0 целую секунду, затем переход. */
+const VOTE_COUNTDOWN_ZERO_PAD_MS = 1_000;
+const SKIP_MARK = "skip";
+/** Если таймер обсуждения уже истёк, после выхода из голосования даём ещё время, иначе тик снова уйдёт в vote. */
+const DISCUSSION_EXTENSION_AFTER_VOTE_MS = 2 * 60 * 1000;
+const MIN_ALIVE_PLAYERS_TO_CONTINUE = 3;
 
 type RosterRowInput = {
   id?: string;
@@ -30,8 +59,19 @@ function bool(v: unknown): boolean {
   return v === true || v === "true" || v === 1 || v === "1";
 }
 
+function earlyMajorityRequired(n: number): number {
+  return Math.floor(n / 2) + 1;
+}
+
 export class SpyfallRoom extends Room<SpyfallGameState> {
   private clientToPlayerId = new Map<string, string>();
+  /** Момент постановки на паузу (только в памяти процесса). */
+  private pauseStartedAt: number | null = null;
+  /** Последняя сессия голосования была запущена досрочно — влияет на cooldown. */
+  private voteTriggeredByEarly = false;
+  /** После таймера сплэша изгнания показать победный баннер (иначе — вернуться в обсуждение). */
+  private pendingVictoryAfterEliminationSplash: "game_over_civilians_win" | "game_over_spy_win_voting" | null =
+    null;
 
   override onCreate(options: Record<string, unknown> & Partial<MatchJoinOptions>) {
     const matchSessionId = typeof options.matchSessionId === "string" ? options.matchSessionId.trim() : "";
@@ -44,15 +84,34 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
         ? Math.max(30_000, Math.min(3_600_000, Math.floor(options.discussionDurationMs)))
         : DEFAULT_DISCUSSION_DURATION_MS;
 
+    const votingMs =
+      typeof options.votingDurationMs === "number" && Number.isFinite(options.votingDurationMs)
+        ? Math.max(30_000, Math.min(600_000, Math.floor(options.votingDurationMs)))
+        : DEFAULT_VOTING_DURATION_MS;
+
     const rosterRaw = options.roster;
     if (!Array.isArray(rosterRaw) || rosterRaw.length === 0) {
       throw new Error("SpyfallRoom: roster is required and must be non-empty");
     }
 
     this.setState(new GameState());
+    const createdAt = Date.now();
     this.state.matchSessionId = matchSessionId;
     this.state.phase = "discussion";
-    this.state.matchEndsAt = Date.now() + durationMs;
+    this.state.matchEndsAt = createdAt + durationMs;
+    this.state.matchPaused = false;
+
+    this.state.gameStartedAt = createdAt;
+    this.state.firstEarlyVoteAfterAt = createdAt + FIRST_EARLY_VOTE_AFTER_MS;
+    this.state.earlyVoteCooldownUntil = 0;
+    this.state.earlyVotesUsed = 0;
+    this.state.votingDurationSec = Math.max(30, Math.min(600, Math.floor(votingMs / 1000)));
+    this.state.voteStage = "idle";
+    this.state.voteEndsAt = 0;
+    this.state.voteTransitionEndsAt = 0;
+    this.state.revoteA = "";
+    this.state.revoteB = "";
+    this.state.stubEliminatedId = "";
 
     this.state.locationName = typeof options.locationName === "string" ? options.locationName : "";
     this.state.locationImageKey =
@@ -73,6 +132,7 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
       p.isSpy = bool(row.isSpy);
       p.roleAtLocation = typeof row.roleAtLocation === "string" ? row.roleAtLocation : "";
       p.spyCardUrl = typeof row.spyCardUrl === "string" ? row.spyCardUrl : "";
+      p.eliminated = false;
       this.state.players.set(id, p);
     }
 
@@ -80,6 +140,102 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
 
     this.onMessage(WS_CLIENT_MESSAGE.ping, (client: Client, payload: { t?: number }) => {
       client.send("pong", { t: payload?.t ?? 0, serverTime: Date.now() });
+    });
+
+    this.onMessage(WS_CLIENT_MESSAGE.matchPause, (client: Client) => {
+      const playerId = this.clientToPlayerId.get(client.sessionId);
+      if (!playerId) return;
+      const p = this.state.players.get(playerId);
+      if (!p?.isHost) return;
+      /** Реальная пауза ведущего только в обсуждении; во время голосования таймер обсуждения уже «заморожен» в state. */
+      if (this.state.phase !== "discussion") return;
+      if (this.state.matchPaused) return;
+      if (this.state.matchEndsAt <= 0) return;
+      this.pauseStartedAt = Date.now();
+      this.state.matchPaused = true;
+    });
+
+    this.onMessage(WS_CLIENT_MESSAGE.matchResume, (client: Client) => {
+      const playerId = this.clientToPlayerId.get(client.sessionId);
+      if (!playerId) return;
+      const p = this.state.players.get(playerId);
+      if (!p?.isHost) return;
+      if (this.state.phase !== "discussion") return;
+      if (!this.state.matchPaused || this.pauseStartedAt == null) return;
+      const delta = Date.now() - this.pauseStartedAt;
+      this.state.matchEndsAt += delta;
+      this.state.matchPaused = false;
+      this.pauseStartedAt = null;
+    });
+
+    this.onMessage(WS_CLIENT_MESSAGE.earlyVoteToggle, (client: Client) => {
+      const playerId = this.clientToPlayerId.get(client.sessionId);
+      if (!playerId) return;
+      if (this.state.phase !== "discussion") return;
+      const voter = this.state.players.get(playerId);
+      if (!voter || voter.eliminated) return;
+      if (this.state.earlyVotesUsed >= 2) return;
+      const now = Date.now();
+      if (now < Math.max(this.state.firstEarlyVoteAfterAt, this.state.earlyVoteCooldownUntil)) return;
+
+      if (this.state.earlyVoteAck.has(playerId)) {
+        this.state.earlyVoteAck.delete(playerId);
+      } else {
+        this.state.earlyVoteAck.set(playerId, "1");
+      }
+
+      const alive = this.countAlive();
+      const need = earlyMajorityRequired(alive);
+      let ack = 0;
+      this.state.earlyVoteAck.forEach((_, id) => {
+        if (!this.state.players.get(id)?.eliminated) ack++;
+      });
+      if (ack >= need) {
+        this.startVotingSession(true);
+      }
+    });
+
+    this.onMessage(WS_CLIENT_MESSAGE.voteCast, (client: Client, payload: { targetId?: string }) => {
+      const playerId = this.clientToPlayerId.get(client.sessionId);
+      if (!playerId) return;
+      if (this.state.phase !== "voting") return;
+      const me = this.state.players.get(playerId);
+      if (!me || me.eliminated) return;
+      const stage = this.state.voteStage;
+      if (stage !== "collect1" && stage !== "collect2") return;
+      const targetId = typeof payload?.targetId === "string" ? payload.targetId.trim() : "";
+      if (!targetId) return;
+
+      if (stage === "collect1") {
+        if (targetId === playerId) return;
+        const t = this.state.players.get(targetId);
+        if (!t || t.eliminated) return;
+        this.state.voteBallots.set(playerId, targetId);
+        return;
+      }
+
+      const a = this.state.revoteA;
+      const b = this.state.revoteB;
+      if (playerId === a || playerId === b) return;
+      if (targetId !== a && targetId !== b) return;
+      this.state.voteBallots.set(playerId, targetId);
+    });
+
+    this.onMessage(WS_CLIENT_MESSAGE.voteSkip, (client: Client) => {
+      const playerId = this.clientToPlayerId.get(client.sessionId);
+      if (!playerId) return;
+      if (this.state.phase !== "voting") return;
+      if (this.state.voteIsFinal) return;
+      const me = this.state.players.get(playerId);
+      if (!me || me.eliminated) return;
+      const stage = this.state.voteStage;
+      if (stage !== "collect1" && stage !== "collect2") return;
+      if (stage === "collect2") {
+        const a = this.state.revoteA;
+        const b = this.state.revoteB;
+        if (playerId === a || playerId === b) return;
+      }
+      this.state.voteBallots.set(playerId, SKIP_MARK);
     });
 
     this.setSimulationInterval(() => {
@@ -133,16 +289,368 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
     }
   }
 
-  private tickTimer() {
-    if (this.state.phase !== "discussion") {
-      return;
+  private getOrderedPlayerIds(): string[] {
+    const out: string[] = [];
+    this.state.players.forEach((_, id) => out.push(id));
+    return out;
+  }
+
+  private getAlivePlayerIds(): string[] {
+    const out: string[] = [];
+    this.state.players.forEach((p, id) => {
+      if (!p.eliminated) out.push(id);
+    });
+    return out;
+  }
+
+  private countAlive(): number {
+    let n = 0;
+    this.state.players.forEach((p) => {
+      if (!p.eliminated) n++;
+    });
+    return n;
+  }
+
+  private clearMatchSplashFields() {
+    this.state.matchSplashType = "";
+    this.state.matchSplashAt = 0;
+    this.state.matchSplashEndsAt = 0;
+    this.state.matchSplashEliminatedId = "";
+    this.state.matchSplashVotePercent = 0;
+    this.state.matchSplashEliminationGameOver = false;
+  }
+
+  private startVotingSession(fromEarly: boolean) {
+    const now = Date.now();
+    this.state.discussionTimerRemainingMs = Math.max(0, this.state.matchEndsAt - now);
+
+    this.pendingVictoryAfterEliminationSplash = null;
+    this.clearMatchSplashFields();
+
+    this.state.voteBallots.clear();
+    this.state.voteTransitionEndsAt = 0;
+    this.state.revoteA = "";
+    this.state.revoteB = "";
+    this.state.stubEliminatedId = "";
+
+    if (fromEarly) {
+      this.state.earlyVotesUsed += 1;
+      this.state.earlyVoteAck.clear();
     }
-    if (this.state.matchEndsAt <= 0) {
-      return;
-    }
-    if (Date.now() < this.state.matchEndsAt) {
-      return;
-    }
+    this.voteTriggeredByEarly = fromEarly;
+    this.state.voteIsFinal = !fromEarly;
+
     this.state.phase = "voting";
+    this.state.voteStage = "collect1";
+    this.state.voteEndsAt = now + this.state.votingDurationSec * 1000 + VOTE_COUNTDOWN_ZERO_PAD_MS;
+  }
+
+  private returnToDiscussion() {
+    const now = Date.now();
+    const savedDiscussionMs = this.state.discussionTimerRemainingMs;
+    this.state.discussionTimerRemainingMs = 0;
+
+    this.pendingVictoryAfterEliminationSplash = null;
+    this.clearMatchSplashFields();
+
+    this.state.phase = "discussion";
+    this.state.voteStage = "idle";
+    this.state.voteEndsAt = 0;
+    this.state.voteTransitionEndsAt = 0;
+    this.state.revoteA = "";
+    this.state.revoteB = "";
+    this.state.stubEliminatedId = "";
+    this.state.voteBallots.clear();
+    this.state.earlyVoteAck.clear();
+    if (this.voteTriggeredByEarly) {
+      this.state.earlyVoteCooldownUntil = now + EARLY_VOTE_COOLDOWN_MS;
+    }
+    this.voteTriggeredByEarly = false;
+    this.state.voteIsFinal = false;
+
+    this.state.matchEndsAt = now + Math.max(0, savedDiscussionMs);
+    if (this.state.matchEndsAt <= now) {
+      this.state.matchEndsAt = now + DISCUSSION_EXTENSION_AFTER_VOTE_MS;
+    }
+  }
+
+  /** Победитель после изгнания по числу живых шпионов / мирных. */
+  private victoryAfterEliminationCounts(spies: number, civs: number): "game_over_civilians_win" | "game_over_spy_win_voting" {
+    if (spies === 0) return "game_over_civilians_win";
+    if (spies >= civs) return "game_over_spy_win_voting";
+    return "game_over_civilians_win";
+  }
+
+  private enterIntermissionNoVote() {
+    this.state.voteStage = "intermission_no_vote";
+    this.state.voteEndsAt = 0;
+    this.state.voteTransitionEndsAt = Date.now() + VOTE_INTERMISSION_UI_MS + VOTE_COUNTDOWN_ZERO_PAD_MS;
+  }
+
+  private enterIntermissionRevoteNoVote() {
+    this.state.voteStage = "intermission_revote_no_vote";
+    this.state.voteEndsAt = 0;
+    this.state.voteTransitionEndsAt = Date.now() + VOTE_INTERMISSION_UI_MS + VOTE_COUNTDOWN_ZERO_PAD_MS;
+  }
+
+  private enterIntermissionTie(a: string, b: string) {
+    this.state.revoteA = a;
+    this.state.revoteB = b;
+    this.state.voteStage = "intermission_tie";
+    this.state.voteEndsAt = 0;
+    this.state.voteTransitionEndsAt = Date.now() + VOTE_INTERMISSION_UI_MS + VOTE_COUNTDOWN_ZERO_PAD_MS;
+  }
+
+  private enterStub(eliminatedId: string, votePercent: number) {
+    const target = this.state.players.get(eliminatedId);
+    if (target) target.eliminated = true;
+
+    const alive = this.countAlive();
+
+    let spies = 0;
+    let civs = 0;
+    this.state.players.forEach((p) => {
+      if (p.eliminated) return;
+      if (p.isSpy) spies += 1;
+      else civs += 1;
+    });
+
+    const tooFewToContinue = alive < MIN_ALIVE_PLAYERS_TO_CONTINUE;
+
+    let gameOver = false;
+    let victory: "game_over_civilians_win" | "game_over_spy_win_voting" | null = null;
+    if (tooFewToContinue) {
+      gameOver = true;
+      victory = this.victoryAfterEliminationCounts(spies, civs);
+    } else if (spies === 0) {
+      gameOver = true;
+      victory = "game_over_civilians_win";
+    } else if (spies >= civs) {
+      gameOver = true;
+      victory = "game_over_spy_win_voting";
+    }
+
+    this.pendingVictoryAfterEliminationSplash = gameOver ? victory : null;
+
+    const t = Date.now() + ELIMINATION_SPLASH_REVEAL_PAD_MS;
+    const end = t + ELIMINATION_SPLASH_MS + VOTE_COUNTDOWN_ZERO_PAD_MS;
+
+    this.state.stubEliminatedId = eliminatedId;
+    this.state.voteStage = "elimination_splash";
+    this.state.voteEndsAt = 0;
+    this.state.voteTransitionEndsAt = end;
+
+    this.state.matchSplashType = "voting_kicked_civilian";
+    this.state.matchSplashAt = t;
+    this.state.matchSplashEndsAt = end;
+    this.state.matchSplashEliminatedId = eliminatedId;
+    this.state.matchSplashVotePercent = Math.max(0, Math.min(100, Math.round(votePercent)));
+    this.state.matchSplashEliminationGameOver = gameOver;
+  }
+
+  private finishEliminationSplash() {
+    const pending = this.pendingVictoryAfterEliminationSplash;
+    this.pendingVictoryAfterEliminationSplash = null;
+
+    this.state.stubEliminatedId = "";
+    this.state.voteTransitionEndsAt = 0;
+    this.clearMatchSplashFields();
+
+    if (pending) {
+      this.state.phase = "ended";
+      this.state.gameEndReason = pending === "game_over_civilians_win" ? "civilians_win" : "spies_win_voting";
+      this.state.voteStage = "idle";
+      this.state.voteEndsAt = 0;
+      this.state.revoteA = "";
+      this.state.revoteB = "";
+      this.state.discussionTimerRemainingMs = 0;
+      this.state.voteBallots.clear();
+      this.state.earlyVoteAck.clear();
+      this.voteTriggeredByEarly = false;
+      this.state.voteIsFinal = false;
+
+      const t = Date.now();
+      this.state.matchSplashType = pending;
+      this.state.matchSplashAt = t;
+      this.state.matchSplashEndsAt = 0;
+      return;
+    }
+
+    this.returnToDiscussion();
+  }
+
+  private startCollect2() {
+    this.state.voteBallots.clear();
+    this.state.voteStage = "collect2";
+    this.state.voteEndsAt = Date.now() + this.state.votingDurationSec * 1000 + VOTE_COUNTDOWN_ZERO_PAD_MS;
+    this.state.voteTransitionEndsAt = 0;
+  }
+
+  private tallyRound1(): { counts: Map<string, number>; allSkip: boolean } {
+    const ids = this.getAlivePlayerIds();
+    const counts = new Map<string, number>();
+    for (const id of ids) {
+      const v = this.state.voteBallots.get(id);
+      if (v === SKIP_MARK || v === undefined) continue;
+      if (v === id) continue;
+      const target = this.state.players.get(v);
+      if (!target || target.eliminated) continue;
+      counts.set(v, (counts.get(v) ?? 0) + 1);
+    }
+    const allHave = ids.length > 0 && ids.every((x) => this.state.voteBallots.has(x));
+    const allSkip = allHave && ids.every((x) => this.state.voteBallots.get(x) === SKIP_MARK);
+    return { counts, allSkip };
+  }
+
+  private shouldResolveCollect1(): boolean {
+    const ids = this.getAlivePlayerIds();
+    if (ids.length === 0) return false;
+    const now = Date.now();
+    if (now >= this.state.voteEndsAt) return true;
+    return ids.every((id) => this.state.voteBallots.has(id));
+  }
+
+  private shouldResolveCollect2(): boolean {
+    const a = this.state.revoteA;
+    const b = this.state.revoteB;
+    const voters = this.getAlivePlayerIds().filter((id) => id !== a && id !== b);
+    const now = Date.now();
+    if (voters.length === 0) return true;
+    if (now >= this.state.voteEndsAt) return true;
+    return voters.every((id) => this.state.voteBallots.has(id));
+  }
+
+  private resolveRound1() {
+    const { counts, allSkip } = this.tallyRound1();
+    if (allSkip) {
+      this.enterIntermissionNoVote();
+      return;
+    }
+    let max = 0;
+    for (const v of counts.values()) max = Math.max(max, v);
+    if (max === 0) {
+      this.enterIntermissionNoVote();
+      return;
+    }
+    const leaders = [...counts.entries()].filter(([, c]) => c === max).map(([id]) => id);
+    if (leaders.length === 1) {
+      const ids = this.getAlivePlayerIds();
+      const id = leaders[0]!;
+      const maxVotes = counts.get(id) ?? 0;
+      const denom = ids.length;
+      const pct = denom > 0 ? Math.round((maxVotes / denom) * 100) : 0;
+      this.enterStub(id, pct);
+    } else if (leaders.length === 2) {
+      this.enterIntermissionTie(leaders[0]!, leaders[1]!);
+    } else {
+      this.enterIntermissionNoVote();
+    }
+  }
+
+  private resolveRound2() {
+    const a = this.state.revoteA;
+    const b = this.state.revoteB;
+    const voters = this.getAlivePlayerIds().filter((id) => id !== a && id !== b);
+    let ca = 0;
+    let cb = 0;
+    for (const voter of voters) {
+      const v = this.state.voteBallots.get(voter);
+      if (v === SKIP_MARK || v === undefined) continue;
+      if (v === a) ca++;
+      else if (v === b) cb++;
+    }
+    if (ca === 0 && cb === 0) {
+      this.enterIntermissionRevoteNoVote();
+    } else if (ca > cb) {
+      const pct = voters.length > 0 ? Math.round((ca / voters.length) * 100) : 0;
+      this.enterStub(a, pct);
+    } else if (cb > ca) {
+      const pct = voters.length > 0 ? Math.round((cb / voters.length) * 100) : 0;
+      this.enterStub(b, pct);
+    } else {
+      this.enterIntermissionRevoteNoVote();
+    }
+  }
+
+  /** Любое «голосование не состоялось» в финале (раунд 1 или ничья во 2-м) — победа шпионов после проходного экрана. */
+  private endFinalVotingNoOutcomeAsSpyWin() {
+    this.pendingVictoryAfterEliminationSplash = null;
+    this.clearMatchSplashFields();
+
+    this.state.phase = "ended";
+    this.state.gameEndReason = "spies_win_voting";
+    this.state.voteStage = "idle";
+    this.state.voteEndsAt = 0;
+    this.state.voteTransitionEndsAt = 0;
+    this.state.revoteA = "";
+    this.state.revoteB = "";
+    this.state.stubEliminatedId = "";
+    this.state.discussionTimerRemainingMs = 0;
+    this.state.voteBallots.clear();
+    this.state.earlyVoteAck.clear();
+    this.voteTriggeredByEarly = false;
+    this.state.voteIsFinal = false;
+
+    const t = Date.now();
+    this.state.matchSplashType = "game_over_spy_win_voting";
+    this.state.matchSplashAt = t;
+    this.state.matchSplashEndsAt = 0;
+  }
+
+  private advanceAfterIntermission(stage: string) {
+    if (stage === "intermission_no_vote" || stage === "intermission_revote_no_vote") {
+      if (this.state.voteIsFinal) {
+        this.endFinalVotingNoOutcomeAsSpyWin();
+        return;
+      }
+      this.returnToDiscussion();
+      return;
+    }
+    if (stage === "intermission_tie") {
+      this.startCollect2();
+    }
+  }
+
+  private tickTimer() {
+    if (this.state.phase === "ended") {
+      return;
+    }
+
+    if (this.state.phase === "discussion") {
+      if (this.state.matchPaused) return;
+      if (this.state.matchEndsAt <= 0) return;
+      if (Date.now() < this.state.matchEndsAt) return;
+      this.startVotingSession(false);
+      return;
+    }
+
+    if (this.state.phase !== "voting") return;
+
+    const now = Date.now();
+    const stage = this.state.voteStage;
+
+    if (stage === "collect1") {
+      if (this.shouldResolveCollect1()) this.resolveRound1();
+      return;
+    }
+    if (stage === "collect2") {
+      if (this.shouldResolveCollect2()) this.resolveRound2();
+      return;
+    }
+    if (stage === "elimination_splash") {
+      if (this.state.matchSplashEndsAt > 0 && now >= this.state.matchSplashEndsAt) {
+        this.finishEliminationSplash();
+      }
+      return;
+    }
+    if (
+      stage === "intermission_no_vote" ||
+      stage === "intermission_tie" ||
+      stage === "intermission_revote_no_vote"
+    ) {
+      if (this.state.voteTransitionEndsAt > 0 && now >= this.state.voteTransitionEndsAt) {
+        this.advanceAfterIntermission(stage);
+      }
+    }
   }
 }

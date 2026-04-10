@@ -8,6 +8,9 @@ export type Player = {
   is_host: boolean;
   room_id: string;
   joined_at: string;
+  /** В матче: false — изгнан (см. PlayerList / GamePlayer). */
+  is_alive?: boolean;
+  death_reason?: string | null;
 };
 
 export type GamePlayer = Player & {

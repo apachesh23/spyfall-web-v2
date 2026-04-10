@@ -11,10 +11,16 @@ export type MatchJoinOptions = {
   playerId: string;
   nickname: string;
   discussionDurationMs?: number;
+  votingDurationMs?: number;
 };
 
 export const WS_CLIENT_MESSAGE = {
   ping: "ping",
+  matchPause: "matchPause",
+  matchResume: "matchResume",
+  earlyVoteToggle: "earlyVoteToggle",
+  voteCast: "voteCast",
+  voteSkip: "voteSkip",
 } as const;
 
 export const WS_SERVER_MESSAGE = {
