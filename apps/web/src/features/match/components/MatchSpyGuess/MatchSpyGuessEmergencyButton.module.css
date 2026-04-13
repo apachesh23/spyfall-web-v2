@@ -1,0 +1,84 @@
+/* Внешний контейнер — точка для будущих анимаций / позиционирования всей сцены. */
+.scene {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+}
+
+/* Размер задаёт base в потоке; остальные слои 1:1 поверх. */
+.composition {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  max-width: 100%;
+}
+
+/* Open — под base (z-index ниже). До motion: скрыт, без вспышки на 1–2 кадра. */
+.layerGlassOpen {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  z-index: 0;
+  opacity: 0;
+  user-select: none;
+  pointer-events: none;
+}
+
+.layerBaseAnchor {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  user-select: none;
+  pointer-events: none;
+}
+
+.layerMask {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  z-index: 4;
+  user-select: none;
+  pointer-events: none;
+}
+
+.layerButtonWrap {
+  position: absolute;
+  z-index: 3;
+  line-height: 0;
+  pointer-events: none;
+}
+
+.layerButton {
+  display: block;
+  /* width / height задаются inline от naturalWidth * scale */
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Close — поверх маски; до motion: полностью непрозрачен. */
+.layerGlassClose {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  z-index: 5;
+  opacity: 1;
+  user-select: none;
+  pointer-events: none;
+}

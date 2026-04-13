@@ -2,6 +2,11 @@
 
 import { Howl, Howler } from 'howler';
 import { useSoundStore } from '@/store/sound-store';
+
+/** Дефолт Howler — 10; при переключениях game / vote / guess пул HTML5 Audio исчерпывается → тишина и предупреждения в консоли. */
+if (typeof window !== 'undefined' && typeof Howler !== 'undefined') {
+  Howler.html5PoolSize = 24;
+}
 import {
   UI_SOUNDS,
   VFX_SOUNDS,
@@ -16,7 +21,27 @@ import {
 const FADE_IN_MS = 2000;
 const STORAGE_KEY = 'spyfall_music_state';
 
-type MusicContext = 'auth' | 'lobby' | 'game' | 'vote';
+type MusicContext = 'auth' | 'lobby' | 'game' | 'vote' | 'spyGuess';
+
+/** `/play`: MatchScreen регистрирует — первый жест не должен вслепую звать `startGameMusic` (F5 во время голосования). */
+let matchMusicBootstrapHandler: (() => void) | null = null;
+
+export function setMatchMusicBootstrapHandler(handler: (() => void) | null): void {
+  matchMusicBootstrapHandler = handler;
+}
+
+/** Первый клик/тач на странице матча: resume AudioContext + правильный трек по фазе (discussion / voting / spy guess). */
+export function runMatchMusicOnFirstGesture(): void {
+  if (typeof window === 'undefined') return;
+  if (Howler.ctx && Howler.ctx.state === 'suspended') {
+    void Howler.ctx.resume();
+  }
+  if (matchMusicBootstrapHandler) {
+    matchMusicBootstrapHandler();
+    return;
+  }
+  startGameMusic();
+}
 
 // Тип для сохранения состояния (vote не сохраняем)
 type SavedState = {
@@ -64,7 +89,14 @@ let votePlaylistIndex = 0;
 
 function saveAudioState() {
   if (typeof window === 'undefined') return;
-  if (!activeContext || activeContext === 'vote' || !currentMusicHowl || !currentMusicId) return;
+  if (
+    !activeContext ||
+    activeContext === 'vote' ||
+    activeContext === 'spyGuess' ||
+    !currentMusicHowl ||
+    !currentMusicId
+  )
+    return;
 
   const seek = currentMusicHowl.seek();
   const currentTime = typeof seek === 'number' ? seek : 0;
@@ -152,11 +184,23 @@ function createMusicHowl(id: MusicTrackId): Howl {
 
 /** Для голосования: одна дорожка зациклена (vote1 или vote2) */
 function createVoteHowl(id: 'vote1' | 'vote2'): Howl {
-  const useHtml5 = !isIOS();
+  /** Web Audio: не трогаем Html5 pool (как guess) — меньше «двойного» звука и сбоев после F5. */
   return new Howl({
     src: [MUSIC_TRACKS[id].src],
     volume: 0,
-    html5: useHtml5,
+    html5: false,
+    preload: true,
+    autoplay: false,
+    loop: true,
+  });
+}
+
+function createSpyGuessHowl(): Howl {
+  /** Всегда Web Audio: не занимаем Html5 pool (иначе после spy-guess / F5 «pool exhausted», музыка не стартует). */
+  return new Howl({
+    src: [MUSIC_TRACKS.guess.src],
+    volume: 0,
+    html5: false,
     preload: true,
     autoplay: false,
     loop: true,
@@ -207,14 +251,15 @@ function getPlaylistIndex(context: MusicContext): number {
   if (context === 'auth') return authPlaylistIndex;
   if (context === 'lobby') return lobbyPlaylistIndex;
   if (context === 'game') return gamePlaylistIndex;
-  return votePlaylistIndex;
+  if (context === 'vote') return votePlaylistIndex;
+  return 0;
 }
 
 function setPlaylistIndex(context: MusicContext, index: number) {
   if (context === 'auth') authPlaylistIndex = index;
   else if (context === 'lobby') lobbyPlaylistIndex = index;
   else if (context === 'game') gamePlaylistIndex = index;
-  else votePlaylistIndex = index;
+  else if (context === 'vote') votePlaylistIndex = index;
 }
 
 function playNextTrackInContext(
@@ -315,9 +360,13 @@ export function stopLobbyMusic(shouldSave = true): void {
 
 export function startGameMusic(): void {
   if (typeof window === 'undefined') return;
+  if (Howler.ctx && Howler.ctx.state === 'suspended') {
+    void Howler.ctx.resume();
+  }
   if (activeContext === 'game') return;
   /** Не перебивать vote1/vote2 жестом с `MatchPlayMusicMount` до выхода из голосования. */
   if (activeContext === 'vote') return;
+  if (activeContext === 'spyGuess') return;
 
   activeContext = 'game';
 
@@ -346,10 +395,18 @@ export function stopGameMusic(shouldSave = true): void {
 /** Музыка голосования: одна песня на первое голосование (vote1, с микро-этапами), вторая на повторное (vote2). Дорожка зациклена. */
 export function startVoteMusic(round: 'first' | 'revote'): void {
   if (typeof window === 'undefined') return;
+  if (Howler.ctx && Howler.ctx.state === 'suspended') {
+    void Howler.ctx.resume();
+  }
 
   const wantTrack = round === 'first' ? 'vote1' : 'vote2';
-  if (activeContext === 'vote' && currentVoteTrackId === wantTrack && currentMusicHowl?.playing()) return;
+  if (activeContext === 'vote' && currentVoteTrackId === wantTrack && currentMusicHowl) {
+    const st = currentMusicHowl.state();
+    if (st === 'loading') return;
+    if (currentMusicHowl.playing()) return;
+  }
 
+  if (activeContext === 'spyGuess') stopSpyGuessMusic();
   if (activeContext === 'game') stopGameMusic(false);
   activeContext = 'vote';
 
@@ -376,17 +433,55 @@ export function stopVoteMusic(): void {
   }
 }
 
+/** Музыка фазы угадывания шпиона (Emergency + голосование / авто-победа). */
+export function startSpyGuessMusic(): void {
+  if (typeof window === 'undefined') return;
+  if (Howler.ctx && Howler.ctx.state === 'suspended') {
+    void Howler.ctx.resume();
+  }
+  if (activeContext === 'spyGuess' && currentMusicId === 'guess' && currentMusicHowl) {
+    const st = currentMusicHowl.state();
+    if (st === 'loading') return;
+    if (currentMusicHowl.playing()) return;
+  }
+  if (activeContext === 'game') stopGameMusic(false);
+  if (activeContext === 'vote') stopVoteMusic();
+
+  activeContext = 'spyGuess';
+  unloadCurrentMusic();
+
+  const def = MUSIC_TRACKS.guess;
+  const targetVol = def.baseVolume * getMusicVolume();
+  const howl = createSpyGuessHowl();
+  currentMusicHowl = howl;
+  currentMusicId = 'guess';
+
+  howl.volume(0);
+  howl.play();
+  howl.fade(0, targetVol, FADE_IN_MS);
+}
+
+export function stopSpyGuessMusic(): void {
+  if (activeContext === 'spyGuess') {
+    activeContext = null;
+    unloadCurrentMusic();
+  }
+}
+
 // --- DEBUG / CONTROLS ---
 
 function getPlaylistForContext(ctx: MusicContext): readonly MusicTrackId[] {
   if (ctx === 'auth') return MUSIC_PLAYLISTS.auth;
   if (ctx === 'lobby') return MUSIC_PLAYLISTS.lobby;
   if (ctx === 'game') return MUSIC_PLAYLISTS.game;
-  return MUSIC_PLAYLISTS.vote;
+  if (ctx === 'vote') return MUSIC_PLAYLISTS.vote;
+  if (ctx === 'spyGuess') return ['guess'] as const;
+  return MUSIC_PLAYLISTS.game;
 }
 
 function skipTrack(direction: 'next' | 'prev') {
   if (!activeContext) return;
+  if (activeContext === 'spyGuess') return;
 
   const playlist = getPlaylistForContext(activeContext);
   let index = getPlaylistIndex(activeContext);

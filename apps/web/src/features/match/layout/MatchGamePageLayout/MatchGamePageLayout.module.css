@@ -467,3 +467,24 @@
   gap: 1rem;
   flex-shrink: 0;
 }
+
+/* Desktop: карточки темы / локации / роли и верхняя строка сетки — 100px под MatchSpyBlock */
+@media (min-width: 1271px) {
+  .contentGrid {
+    grid-template-rows: 100px 1fr 80px;
+  }
+
+  .glassBlock {
+    flex: 0 0 100px;
+    height: 100px;
+  }
+
+  .modeCardsRow {
+    flex: 0 0 100px;
+    height: 100px;
+  }
+
+  .modeCardsRowSpy {
+    min-height: 100px;
+  }
+}

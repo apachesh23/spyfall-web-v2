@@ -12,45 +12,51 @@ export type MatchSpyBlockProps = {
   /** Режим «Скрытая угроза»: вторая кнопка «Устранить» */
   modeHiddenThreat?: boolean;
   subtitle?: string;
-  guessStatusLabel?: string;
-  killStatusLabel?: string;
+  /** Одна строка под кнопками: остаток попыток, таймер, «мало игроков» и т.д. */
+  actionStatusLine?: string;
+  /** Оба действия в «ожидании»: таймер, лимит, мало игроков, голосование — обе кнопки в стиле glass */
+  buttonsMuted?: boolean;
   guessDisabled?: boolean;
   killDisabled?: boolean;
-  /** Стеклянный стиль кнопки устранения (таймер / мало игроков) */
-  killUseGlassStyle?: boolean;
   guessUsed?: boolean;
   killUsed?: boolean;
   onGuessClick?: () => void;
   onKillClick?: () => void;
 };
 
-const DEFAULT_SUBTITLE = "Назвать локацию можно только один раз за игру.";
-const DEFAULT_SUBTITLE_HIDDEN = "Вы можете выполнить только одно действие за игру.";
-const DEFAULT_GUESS_STATUS = "⚡ Доступно";
-const DEFAULT_KILL_STATUS = "⚡ Доступно";
+const DEFAULT_SUBTITLE = "Только 2 действия за игру. Перезарядка — 3 мин";
 
 export function MatchSpyBlock({
   className = "",
   previewMode = false,
   modeHiddenThreat = false,
   subtitle,
-  guessStatusLabel = DEFAULT_GUESS_STATUS,
-  killStatusLabel = DEFAULT_KILL_STATUS,
+  actionStatusLine,
+  buttonsMuted = false,
   guessDisabled = false,
   killDisabled = false,
-  killUseGlassStyle = false,
   guessUsed = false,
   killUsed = false,
   onGuessClick,
   onKillClick,
 }: MatchSpyBlockProps) {
   const [hovered, setHovered] = useState(false);
-  const resolvedSubtitle =
-    subtitle ??
-    (modeHiddenThreat ? DEFAULT_SUBTITLE_HIDDEN : DEFAULT_SUBTITLE);
+  const resolvedSubtitle = subtitle ?? DEFAULT_SUBTITLE;
 
   const canGuess = !guessUsed && !guessDisabled;
   const canKill = !killUsed && !killDisabled && modeHiddenThreat;
+
+  const guessClass = buttonsMuted
+    ? `${styles.button} ${styles.buttonGlass} glass glass-hover`
+    : `${styles.button} ${styles.guessButton} ${guessUsed ? styles.buttonUsed : ""} ${
+        !canGuess && !guessUsed ? styles.guessButtonDim : ""
+      }`.trim();
+
+  const killClass = buttonsMuted
+    ? `${styles.button} ${styles.buttonGlass} glass glass-hover`
+    : `${styles.button} ${canKill ? styles.killButton : `${styles.killButtonLocked} glass glass-hover`} ${
+        killUsed ? styles.buttonUsed : ""
+      }`.trim();
 
   return (
     <div
@@ -73,63 +79,46 @@ export function MatchSpyBlock({
         </div>
       </div>
 
-      <div className={styles.buttons}>
-        <PrimaryButton
-          type="button"
-          withIcon={false}
-          disabled={!canGuess}
-          onClick={() => {
-            if (previewMode) return;
-            onGuessClick?.();
-          }}
-          soundClick="click"
-          soundHover="hover"
-          className={`${styles.button} ${styles.guessButton} ${guessUsed ? styles.buttonUsed : ""}`}
-        >
-          <span className={styles.buttonText}>
-            <span className={styles.buttonTitle}>НАЗВАТЬ ЛОКАЦИЮ</span>
-            <span
-              className={`${styles.buttonStatus} ${
-                guessUsed ? styles.buttonStatusUsed : styles.buttonStatusAvailable
-              }`}
-            >
-              {guessStatusLabel}
-            </span>
-          </span>
-        </PrimaryButton>
-
-        {modeHiddenThreat ? (
+      <div className={styles.right}>
+        <div className={styles.buttons}>
           <PrimaryButton
             type="button"
             withIcon={false}
-            disabled={!canKill}
+            disabled={!previewMode && (buttonsMuted || !canGuess)}
             onClick={() => {
               if (previewMode) return;
-              onKillClick?.();
+              onGuessClick?.();
             }}
             soundClick="click"
             soundHover="hover"
-            className={`${styles.button} ${
-              killUseGlassStyle ? `${styles.killButtonLocked} glass glass-hover` : styles.killButton
-            } ${killUsed ? styles.buttonUsed : ""}`}
+            className={guessClass}
           >
-            <span className={styles.buttonText}>
-              <span className={styles.buttonTitle}>УСТРАНИТЬ</span>
-              <span
-                className={`${styles.buttonStatus} ${
-                  killDisabled && !killUsed
-                    ? styles.buttonStatusUnavailable
-                    : killUsed
-                      ? styles.buttonStatusUsed
-                      : killUseGlassStyle
-                        ? styles.buttonStatusTimer
-                        : styles.buttonStatusAvailable
-                }`}
-              >
-                {killStatusLabel}
-              </span>
+            <span className={styles.buttonTitleOnly}>
+              {modeHiddenThreat ? "УГАДАТЬ ЛОКАЦИЮ" : "НАЗВАТЬ ЛОКАЦИЮ"}
             </span>
           </PrimaryButton>
+
+          {modeHiddenThreat ? (
+            <PrimaryButton
+              type="button"
+              withIcon={false}
+              disabled={!previewMode && (buttonsMuted || !canKill)}
+              onClick={() => {
+                if (previewMode) return;
+                onKillClick?.();
+              }}
+              soundClick="click"
+              soundHover="hover"
+              className={killClass}
+            >
+              <span className={styles.buttonTitleOnly}>УСТРАНИТЬ</span>
+            </PrimaryButton>
+          ) : null}
+        </div>
+        {actionStatusLine ? (
+          <p className={styles.actionStatus} aria-live="polite">
+            {actionStatusLine}
+          </p>
         ) : null}
       </div>
     </div>

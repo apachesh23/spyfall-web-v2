@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { startGameMusic, stopGameMusic, stopVoteMusic } from "@/lib/sound";
+import { runMatchMusicOnFirstGesture, stopGameMusic, stopSpyGuessMusic, stopVoteMusic } from "@/lib/sound";
 
 /**
  * Страница /play: фоновая игровая музыка после первого жеста (как в лобби).
@@ -18,7 +18,7 @@ export function MatchPlayMusicMount() {
       }
       if (document.visibilityState !== "visible") return;
       if (!startedAfterGesture.current) {
-        startGameMusic();
+        runMatchMusicOnFirstGesture();
         startedAfterGesture.current = true;
       }
     };
@@ -33,6 +33,7 @@ export function MatchPlayMusicMount() {
         if (startedAfterGesture.current) {
           stopGameMusic();
           stopVoteMusic();
+          stopSpyGuessMusic();
           startedAfterGesture.current = false;
         }
       }
@@ -43,6 +44,7 @@ export function MatchPlayMusicMount() {
     return () => {
       stopGameMusic();
       stopVoteMusic();
+      stopSpyGuessMusic();
       startedAfterGesture.current = false;
       document.removeEventListener("click", onUserInteraction);
       document.removeEventListener("touchend", onUserInteraction);

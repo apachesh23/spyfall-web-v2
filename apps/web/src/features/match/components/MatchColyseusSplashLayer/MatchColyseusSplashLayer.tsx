@@ -11,13 +11,16 @@ type SplashLayerPlayer = {
   isSpy: boolean;
 };
 
-const SPLASH_TYPES = new Set<string>([
+/** Типы сплэшей Colyseus — общий список для слоя и для `syncPlayPageMusicForState` (фон во время сплэша). */
+export const MATCH_COLYSEUS_SPLASH_TYPES = new Set<string>([
   "voting_kicked_civilian",
   "game_over_spy_win",
   "game_over_spy_win_voting",
   "game_over_civilians_win",
   "spy_kill",
 ]);
+
+const SPLASH_TYPES = MATCH_COLYSEUS_SPLASH_TYPES;
 
 const VICTORY_SPLASH_TYPES = new Set<string>([
   "game_over_spy_win",
@@ -70,7 +73,8 @@ export function MatchColyseusSplashLayer({
     .map((p) => p.id);
 
   const eliminated =
-    matchSplashType === "voting_kicked_civilian" && matchSplashEliminatedId
+    (matchSplashType === "voting_kicked_civilian" || matchSplashType === "spy_kill") &&
+    matchSplashEliminatedId
       ? players[matchSplashEliminatedId]
       : undefined;
 

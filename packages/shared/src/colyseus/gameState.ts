@@ -16,6 +16,8 @@ export class MatchPlayerState extends Schema {
   declare spyCardUrl: string;
   /** Изгнан голосованием — не участвует в голосах и не считается «живым». */
   declare eliminated: boolean;
+  /** `voted` — изгнание голосованием; `killed` — устранение шпионом; пусто — ещё в игре. */
+  declare deathReason: string;
 }
 defineTypes(MatchPlayerState, {
   id: "string",
@@ -26,6 +28,7 @@ defineTypes(MatchPlayerState, {
   roleAtLocation: "string",
   spyCardUrl: "string",
   eliminated: "boolean",
+  deathReason: "string",
 });
 
 /** Корень состояния SpyfallRoom — одна копия для game-server и web (join третьим аргументом). */
@@ -43,6 +46,8 @@ export class GameState extends Schema {
   declare themeText: string;
   declare modeTheme: boolean;
   declare modeRole: boolean;
+  /** Режим лобби «Скрытая угроза»: две кнопки шпиона, общий лимит действий с угадыванием. */
+  declare modeHiddenThreat: boolean;
   declare players: MapSchema<MatchPlayerState>;
 
   /** См. docs/migration/step5/VOTING_IMPLEMENTATION_PLAN.md */
@@ -79,10 +84,32 @@ export class GameState extends Schema {
   /** Если true — после изгнания игра не продолжается (подпись на сплэше изгнания). */
   declare matchSplashEliminationGameOver: boolean;
 
+  declare spyGuessAttemptsUsed: number;
+  declare spyGuessCooldownUntil: number;
+  declare spyGuessVoteEndsAt: number;
+  /** Epoch ms: до этого момента голоса не принимаются и таймер сплэша не «идёт». */
+  declare spyGuessVoteStartsAt: number;
+  /** Точное совпадение с локацией — после cinematic только инфо-фаза, без бюллетеней. */
+  declare spyGuessIsAutoWin: boolean;
+  declare spyGuessText: string;
+  declare spyGuessSpyId: string;
+  declare spyGuessBallots: MapSchema<string>;
+
+  /** Сколько устранений уже зафиксировано (0–2), счётчик растёт в начале сплэша убийства. */
+  declare spyKillAttemptsUsed: number;
+  /** Epoch ms: до этого момента кнопка «Устранить» заблокирована (первый раз — от старта игры). */
+  declare spyKillCooldownUntil: number;
+  /**
+   * Режим «Скрытая угроза»: до этого момента недоступны и угадывание, и устранение (первые 3 мин с старта).
+   * Не сдвигается при перезарядках между попытками.
+   */
+  declare spyDiscussActionsUnlockAt: number;
+
   constructor() {
     super();
     this.players = new MapSchema<MatchPlayerState>();
     this.matchPaused = false;
+    this.modeHiddenThreat = false;
     this.gameStartedAt = 0;
     this.votingDurationSec = 60;
     this.firstEarlyVoteAfterAt = 0;
@@ -105,6 +132,17 @@ export class GameState extends Schema {
     this.matchSplashEliminatedId = "";
     this.matchSplashVotePercent = 0;
     this.matchSplashEliminationGameOver = false;
+    this.spyGuessAttemptsUsed = 0;
+    this.spyGuessCooldownUntil = 0;
+    this.spyGuessVoteEndsAt = 0;
+    this.spyGuessVoteStartsAt = 0;
+    this.spyGuessIsAutoWin = false;
+    this.spyGuessText = "";
+    this.spyGuessSpyId = "";
+    this.spyGuessBallots = new MapSchema<string>();
+    this.spyKillAttemptsUsed = 0;
+    this.spyKillCooldownUntil = 0;
+    this.spyDiscussActionsUnlockAt = 0;
   }
 }
 defineTypes(GameState, {
@@ -117,6 +155,7 @@ defineTypes(GameState, {
   themeText: "string",
   modeTheme: "boolean",
   modeRole: "boolean",
+  modeHiddenThreat: "boolean",
   players: { map: MatchPlayerState },
   gameStartedAt: "number",
   votingDurationSec: "number",
@@ -140,4 +179,15 @@ defineTypes(GameState, {
   matchSplashEliminatedId: "string",
   matchSplashVotePercent: "number",
   matchSplashEliminationGameOver: "boolean",
+  spyGuessAttemptsUsed: "number",
+  spyGuessCooldownUntil: "number",
+  spyGuessVoteEndsAt: "number",
+  spyGuessVoteStartsAt: "number",
+  spyGuessIsAutoWin: "boolean",
+  spyGuessText: "string",
+  spyGuessSpyId: "string",
+  spyGuessBallots: { map: "string" },
+  spyKillAttemptsUsed: "number",
+  spyKillCooldownUntil: "number",
+  spyDiscussActionsUnlockAt: "number",
 });

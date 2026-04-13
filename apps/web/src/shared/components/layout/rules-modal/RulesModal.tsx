@@ -355,12 +355,16 @@ export function RulesModal({ open, onClose }: RulesModalProps) {
                       Дополнительный режим для <span className={styles.modesChip}>5+ игроков</span> и только
                       с <span className={styles.modesChip}>одним шпионом</span>.
                       <br />
-                      В этом режиме шпион получает активное действие и может выбрать одно из двух за игру:
+                      В этом режиме у шпиона две попытки за игру: угадать локацию и/или устранить игроков.
                     </p>
 
                     <p className={styles.modesLead}>Пример кнопок:</p>
                     <div className={styles.modesPreviewWrap}>
-                      <MatchSpyBlock modeHiddenThreat previewMode />
+                      <MatchSpyBlock
+                        modeHiddenThreat
+                        previewMode
+                        actionStatusLine="Использовано действий 0/2"
+                      />
                     </div>
 
                     <ul className={styles.modesList}>
@@ -374,7 +378,9 @@ export function RulesModal({ open, onClose }: RulesModalProps) {
                       </li>
                     </ul>
 
-                    <p className={styles.modesNote}>Сделать оба действия в одной игре нельзя.</p>
+                    <p className={styles.modesNote}>
+                      Всего две попытки за партию — в любом сочетании угадываний и устранений.
+                    </p>
                   </div>
                 ) : (
                   <>

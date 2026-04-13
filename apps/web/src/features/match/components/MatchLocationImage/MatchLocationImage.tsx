@@ -126,7 +126,7 @@ export function MatchLocationImage({
           <div className={styles.spyOverlayInner}>
             <p className={styles.spyTitle}>Ты шпион</p>
             <p className={styles.spySubtitle}>
-              Локацию знают только мирные. Тема общая — встройся в разговор.
+              Вычислите локацию до конца раунда или не дайте себя раскрыть.
             </p>
           </div>
         </div>

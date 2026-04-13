@@ -16,5 +16,8 @@ export type { MatchHintQuestionBlockProps } from "./MatchHintQuestionBlock/Match
 export { MatchGameHostButtons } from "./MatchGameHostButtons/MatchGameHostButtons";
 export type { MatchGameHostButtonsProps } from "./MatchGameHostButtons/MatchGameHostButtons";
 export { MatchPauseGrayscaleOverlay } from "./MatchPauseGrayscaleOverlay/MatchPauseGrayscaleOverlay";
-export { MatchColyseusSplashLayer } from "./MatchColyseusSplashLayer";
+export {
+  MatchColyseusSplashLayer,
+  MATCH_COLYSEUS_SPLASH_TYPES,
+} from "./MatchColyseusSplashLayer";
 export type { MatchColyseusSplashLayerProps } from "./MatchColyseusSplashLayer";

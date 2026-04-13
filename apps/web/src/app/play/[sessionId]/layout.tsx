@@ -34,6 +34,7 @@ function PlayBackdrop({ children }: { children: React.ReactNode }) {
   return (
     <Backdrop
       contentClassName="videoContentLobbyMobile"
+      backgroundType="tile"
       playLayoutRoot
       showVideoBackground={uiReady}
     >

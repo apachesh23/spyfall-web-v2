@@ -66,6 +66,8 @@ export function buildMatchRoomOptions(
   themeText: string;
   modeTheme: boolean;
   modeRole: boolean;
+  /** Режим «Скрытая угроза» из лобби (две кнопки шпиона + общий лимит с угадыванием). */
+  modeHiddenThreat: boolean;
   spyPlayerIds: string[];
 } {
   const list = players.filter((p) => p.id && p.nickname);
@@ -96,6 +98,8 @@ export function buildMatchRoomOptions(
 
   const modeTheme = !!settings.mode_theme;
   const modeRole = !!settings.mode_roles;
+  const modeHiddenThreat =
+    !!settings.mode_hidden_threat && !settings.mode_multi_spy && spyCount === 1;
   const themeText =
     modeTheme && themes.length > 0 ? (pickRandom(themes) ?? "") : "";
 
@@ -135,6 +139,7 @@ export function buildMatchRoomOptions(
     themeText,
     modeTheme,
     modeRole,
+    modeHiddenThreat,
     spyPlayerIds,
   };
 }

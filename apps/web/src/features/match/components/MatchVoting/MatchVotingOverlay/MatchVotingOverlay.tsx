@@ -44,6 +44,22 @@ export type MatchVotingOverlayProps = {
 
 const SKIP = "skip";
 
+/** Красный = revoteA (как слева на VS), синий = revoteB. Только раунд 2 / экран ничьей с парой. */
+function revoteGlassTeam(
+  voteStage: string,
+  revoteA: string,
+  revoteB: string,
+  playerId: string,
+): "red" | "blue" | undefined {
+  const hasPair = Boolean(revoteA && revoteB);
+  if (!hasPair) return undefined;
+  if (voteStage === "collect2" || voteStage === "intermission_tie") {
+    if (playerId === revoteA) return "red";
+    if (playerId === revoteB) return "blue";
+  }
+  return undefined;
+}
+
 export function MatchVotingOverlay({
   active,
   onVotingRootExitComplete,
@@ -152,6 +168,7 @@ export function MatchVotingOverlay({
                 selected={false}
                 disabled
                 onSelect={() => {}}
+                revoteTeam={revoteGlassTeam(voteStage, revoteA, revoteB, pa.id)}
               />
             ) : null}
             {pb ? (
@@ -163,6 +180,7 @@ export function MatchVotingOverlay({
                 selected={false}
                 disabled
                 onSelect={() => {}}
+                revoteTeam={revoteGlassTeam(voteStage, revoteA, revoteB, pb.id)}
               />
             ) : null}
           </div>
@@ -193,6 +211,7 @@ export function MatchVotingOverlay({
                       selected={false}
                       disabled
                       onSelect={() => {}}
+                      revoteTeam={revoteGlassTeam(voteStage, revoteA, revoteB, player.id)}
                     />
                   );
                 })}
@@ -242,6 +261,7 @@ export function MatchVotingOverlay({
                     !disabled && !isSelf && setSelectedTarget(selectedTarget === player.id ? null : player.id)
                   }
                   dimmed={dimmed}
+                  revoteTeam={revoteGlassTeam(voteStage, revoteA, revoteB, player.id)}
                 />
               );
             })}

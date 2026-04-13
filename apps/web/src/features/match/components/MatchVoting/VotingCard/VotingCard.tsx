@@ -23,6 +23,8 @@ type VotingCardProps = {
   onSelect: () => void;
   percentLabel?: string;
   dimmed?: boolean;
+  /** Повторное голосование: красный = revoteA (V слева / сверху в колонке), синий = revoteB (S справа / снизу). */
+  revoteTeam?: "red" | "blue";
 };
 
 export function VotingCard({
@@ -35,13 +37,21 @@ export function VotingCard({
   onSelect,
   percentLabel,
   dimmed,
+  revoteTeam,
 }: VotingCardProps) {
   const avatarId = (player.avatarId >= 1 && player.avatarId <= 16 ? player.avatarId : 1) as AvatarId;
+
+  const surfaceClass =
+    revoteTeam === "red"
+      ? styles.cardGlassRevoteRed
+      : revoteTeam === "blue"
+        ? styles.cardGlassRevoteBlue
+        : "glass glass-hover";
 
   return (
     <button
       type="button"
-      className={`glass glass-hover ${styles.card} ${selected ? styles.cardSelected : ""} ${disabled ? styles.cardDisabled : ""} ${dimmed ? styles.cardDimmed : ""}`}
+      className={`${surfaceClass} ${styles.card} ${selected ? styles.cardSelected : ""} ${disabled ? styles.cardDisabled : ""} ${dimmed ? styles.cardDimmed : ""}`}
       onClick={() => {
         if (disabled) return;
         playUI("click");

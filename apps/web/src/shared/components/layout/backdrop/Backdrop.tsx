@@ -55,7 +55,8 @@ export type BackdropProps = {
   /** Play: метки для ч/б при паузе — фон, без TopBar (см. `body[data-match-paused-grayscale]`) */
   playLayoutRoot?: boolean;
   /**
-   * Play: пока false — плоский фон `--spyfall-route-loader-bg` как у FullscreenLoader (бесшовно до появления логотипа).
+   * Пока false — плоский фон лоадера (для видео, чтобы не мигал ролик до готовности UI).
+   * Режим `backgroundType="tile"` игнорирует это: тайл как в старом проекте показывается сразу.
    */
   showVideoBackground?: boolean;
 };
@@ -67,13 +68,16 @@ export function Backdrop({
   playLayoutRoot = false,
   showVideoBackground = true,
 }: BackdropProps) {
+  /** Тайл статичный — как в старом `VideoBackground`: показываем сразу, без ожидания `uiReady`. Видео по-прежнему можно прятать под лоадер. */
+  const showFill = backgroundType === "tile" || showVideoBackground;
+
   return (
     <div className={styles.root}>
       <div
         className={`${styles.fillLayer} video-bg-layer`}
         {...(playLayoutRoot ? { "data-play-pause-filter": "" } : {})}
       >
-        {showVideoBackground ? (
+        {showFill ? (
           <>
             {backgroundType === "tile" ? (
               <>

@@ -30,7 +30,7 @@ const MODE_CARDS: Array<{
   { key: 'mode_multi_spy', lottie: '/lottie/shadow_alliance.json', title: 'Сеть шпионов', desc: '7–10 игроков: 2 шпиона, 11+: 3 шпиона' },
   { key: 'mode_theme', lottie: '/lottie/theme-location.json', title: 'Тема локации', desc: 'Будет известна тема локации' },
   { key: 'mode_roles', lottie: '/lottie/role-location.json', title: 'Роли локации', desc: 'Добавить РП роли всем игрокам' },
-  { key: 'mode_hidden_threat', lottie: '/lottie/hidden_threat.json', title: 'Скрытая угроза', desc: 'Шпион может убивать 1 раз за раунд (5+ игроков)' },
+  { key: 'mode_hidden_threat', lottie: '/lottie/hidden_threat.json', title: 'Скрытая угроза', desc: 'Шпион: «Назвать локацию» и «Устранить» — всего 2 действия за игру (5+ в лобби; в матче кнопки при ≥4 живых)' },
   { key: 'mode_spy_chaos', lottie: '/lottie/chaos.json', title: 'Шпионский хаос', desc: 'Случайное кол-во шпионов от 1 до макс. (только с Сетью шпионов)' },
 ];
 

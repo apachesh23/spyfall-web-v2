@@ -1,5 +1,12 @@
 export { GameState, MatchPlayerState } from "./colyseus/gameState";
 
+export {
+  SPY_GUESS_CINEMATIC_TOTAL_MS,
+  SPY_GUESS_AUTO_WIN_PHASE_MS,
+} from "./spyGuessTiming";
+
+export { SPY_KILL_FIRST_UNLOCK_MS, SPY_KILL_COOLDOWN_BETWEEN_MS } from "./spyKillTiming";
+
 export const GAME_NAME = "Spyfall";
 
 /** Colyseus room name clients join after host starts a match */
@@ -43,6 +50,10 @@ export const WS_CLIENT_MESSAGE = {
   /** Активная фаза голосования: голос за игрока `{ targetId }`. */
   voteCast: "voteCast",
   voteSkip: "voteSkip",
+  spyGuessSubmit: "spyGuessSubmit",
+  spyGuessVoteCast: "spyGuessVoteCast",
+  /** Шпион в режиме «Скрытая угроза»: `{ targetId }` — жертва до сплэша. */
+  spyKillSubmit: "spyKillSubmit",
 } as const;
 
 /** Server → client: тема/роли для карточки (дубль state, если декод Schema на клиенте глючит). */

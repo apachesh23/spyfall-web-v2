@@ -21,6 +21,11 @@ export const WS_CLIENT_MESSAGE = {
   earlyVoteToggle: "earlyVoteToggle",
   voteCast: "voteCast",
   voteSkip: "voteSkip",
+  /** Шпион: попытка угадать локацию `{ text }`. */
+  spyGuessSubmit: "spyGuessSubmit",
+  /** Мирный (не тот шпион что угадывает): `{ vote: "yes" | "no" }` во время подтверждения. */
+  spyGuessVoteCast: "spyGuessVoteCast",
+  spyKillSubmit: "spyKillSubmit",
 } as const;
 
 export const WS_SERVER_MESSAGE = {

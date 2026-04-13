@@ -10,6 +10,7 @@ import {
   MatchModeCard,
   MatchSpyBlock,
 } from "../../components";
+import type { MatchSpyBlockProps } from "../../components/MatchSpyBlock/MatchSpyBlock";
 import styles from "./MatchGamePageLayout.module.css";
 
 export type MatchGamePageLayoutProps = {
@@ -46,6 +47,8 @@ export type MatchGamePageLayoutProps = {
   earlyVoteDisabled?: boolean;
   /** Изгнанный игрок — жёлтая кнопка скрыта, показ «ВЫ ВЫБЫЛИ» */
   earlyVoteEliminated?: boolean;
+  /** Живая панель шпиона в матче (иначе при isSpy — превью для вёрстки). */
+  spyBlockLive?: Omit<MatchSpyBlockProps, "previewMode" | "className"> | null;
 };
 
 export function MatchGamePageLayout({
@@ -74,6 +77,7 @@ export function MatchGamePageLayout({
   onEarlyVoteToggle,
   earlyVoteDisabled = false,
   earlyVoteEliminated = false,
+  spyBlockLive = null,
 }: MatchGamePageLayoutProps) {
   const totalPlayers = Math.max(1, players.length);
   const earlyVoteLabel =
@@ -104,7 +108,11 @@ export function MatchGamePageLayout({
               </div>
               {isSpy ? (
                 <div className={styles.mobileSpyBlock}>
-                  <MatchSpyBlock previewMode />
+                  {spyBlockLive ? (
+                    <MatchSpyBlock previewMode={false} {...spyBlockLive} />
+                  ) : (
+                    <MatchSpyBlock previewMode />
+                  )}
                 </div>
               ) : (
                 <>
@@ -189,7 +197,11 @@ export function MatchGamePageLayout({
             className={`${styles.modeCardsRow} ${isSpy ? styles.modeCardsRowSingle : ""} ${isSpy ? styles.modeCardsRowSpy : ""}`}
           >
             {isSpy ? (
-              <MatchSpyBlock previewMode />
+              spyBlockLive ? (
+                <MatchSpyBlock previewMode={false} {...spyBlockLive} />
+              ) : (
+                <MatchSpyBlock previewMode />
+              )
             ) : (
               <>
                 <MatchModeCard variant="location" value={locationCardValue} />

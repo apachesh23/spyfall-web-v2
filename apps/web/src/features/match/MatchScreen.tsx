@@ -25,10 +25,17 @@ import {
 import { supabase } from "@/lib/supabase/client";
 import { normalizeRoomSettings } from "@/lib/normalizeRoomSettings";
 import { resolveColyseusUrlForBrowser } from "@/lib/env";
-import { startGameMusic, startVoteMusic, stopVoteMusic } from "@/lib/sound";
+import {
+  setMatchMusicBootstrapHandler,
+  startGameMusic,
+  startSpyGuessMusic,
+  startVoteMusic,
+  stopSpyGuessMusic,
+  stopVoteMusic,
+} from "@/lib/sound";
 import type { Settings } from "@/types/room";
 import type { AvatarId } from "@/lib/avatars";
-import type { Player } from "@/types/player";
+import type { GamePlayer, Player } from "@/types/player";
 import { useMediaQuery } from "@/shared/hooks/useMediaQuery";
 import { useRouteLoaderStore } from "@/store/route-loader-store";
 import { useReactions } from "@/features/reactions/context";
@@ -39,10 +46,15 @@ import { useMatchPlayUiReady } from "./context/MatchPlayUiReadyContext";
 import {
   DebugPanelDev,
   MatchColyseusSplashLayer,
+  MATCH_COLYSEUS_SPLASH_TYPES,
   MatchGameHostButtons,
   MatchHintQuestionButton,
   MatchPauseGrayscaleOverlay,
 } from "./components";
+import { MatchSpyGuessEmergencyIntroLayer } from "./components/MatchSpyGuess/MatchSpyGuessEmergencyIntroLayer";
+import { MatchSpyGuessLocationModal } from "./components/MatchSpyGuess/MatchSpyGuessLocationModal";
+import { MatchSpyEliminateModal } from "./components/MatchSpyEliminateModal/MatchSpyEliminateModal";
+import { MatchSpyGuessVoteOverlay } from "./components/MatchSpyGuess/MatchSpyGuessVoteOverlay";
 import {
   MatchVotingOverlay,
   type MatchVotingOverlayPlayer,
@@ -64,6 +76,7 @@ export type MatchPlayerJson = {
   roleAtLocation: string;
   spyCardUrl: string;
   eliminated: boolean;
+  deathReason: "" | "voted" | "killed";
 };
 
 export type GameStateJson = {
@@ -76,6 +89,7 @@ export type GameStateJson = {
   themeText: string;
   modeTheme: boolean;
   modeRole: boolean;
+  modeHiddenThreat: boolean;
   players: Record<string, MatchPlayerJson>;
   gameStartedAt: number;
   votingDurationSec: number;
@@ -99,6 +113,17 @@ export type GameStateJson = {
   matchSplashEliminatedId: string;
   matchSplashVotePercent: number;
   matchSplashEliminationGameOver: boolean;
+  spyGuessAttemptsUsed: number;
+  spyGuessCooldownUntil: number;
+  spyGuessVoteEndsAt: number;
+  spyGuessVoteStartsAt: number;
+  spyGuessIsAutoWin: boolean;
+  spyGuessText: string;
+  spyGuessSpyId: string;
+  spyGuessBallots: Record<string, string>;
+  spyKillAttemptsUsed: number;
+  spyKillCooldownUntil: number;
+  spyDiscussActionsUnlockAt: number;
 };
 
 function num(v: unknown): number {
@@ -143,6 +168,10 @@ function extractPlayer(p: Record<string, unknown> | null | undefined): MatchPlay
   if (!p || typeof p !== "object") return null;
   if (typeof p.id !== "string" || typeof p.nickname !== "string") return null;
   const avatarRaw = num(p.avatarId ?? p.avatar_id);
+  const eliminated = asBool(p.eliminated);
+  const dr = strField(p, "deathReason", "death_reason").trim().toLowerCase();
+  const deathReason: MatchPlayerJson["deathReason"] =
+    eliminated && dr === "killed" ? "killed" : eliminated ? "voted" : "";
   return {
     id: p.id,
     nickname: p.nickname,
@@ -151,7 +180,8 @@ function extractPlayer(p: Record<string, unknown> | null | undefined): MatchPlay
     isSpy: asBool(p.isSpy ?? p.is_spy),
     roleAtLocation: strField(p, "roleAtLocation", "role_at_location"),
     spyCardUrl: strField(p, "spyCardUrl", "spy_card_url"),
-    eliminated: asBool(p.eliminated),
+    eliminated,
+    deathReason,
   };
 }
 
@@ -237,6 +267,7 @@ function snapshotMatchState(room: Room): GameStateJson | null {
   let themeText = typeof loose.themeText === "string" ? loose.themeText : "";
   let modeTheme = asBool(loose.modeTheme);
   let modeRole = asBool(loose.modeRole);
+  let modeHiddenThreat = asBool((loose as { modeHiddenThreat?: unknown }).modeHiddenThreat);
   let matchPaused = asBool(loose.matchPaused);
 
   let gameStartedAt = 0;
@@ -261,6 +292,17 @@ function snapshotMatchState(room: Room): GameStateJson | null {
   let matchSplashEliminatedId = "";
   let matchSplashVotePercent = 0;
   let matchSplashEliminationGameOver = false;
+  let spyGuessAttemptsUsed = 0;
+  let spyGuessCooldownUntil = 0;
+  let spyGuessVoteEndsAt = 0;
+  let spyGuessVoteStartsAt = 0;
+  let spyGuessIsAutoWin = false;
+  let spyGuessText = "";
+  let spyGuessSpyId = "";
+  let spyGuessBallots: Record<string, string> = {};
+  let spyKillAttemptsUsed = 0;
+  let spyKillCooldownUntil = 0;
+  let spyDiscussActionsUnlockAt = 0;
 
   if (!matchEndsAt) matchEndsAt = num(loose._matchEndsAt);
   if (typeof loose._phase === "string" && loose._phase) phase = loose._phase;
@@ -283,6 +325,8 @@ function snapshotMatchState(room: Room): GameStateJson | null {
       else if ("mode_theme" in j) modeTheme = asBool(j.mode_theme);
       if ("modeRole" in j) modeRole = asBool(j.modeRole);
       else if ("mode_role" in j) modeRole = asBool(j.mode_role);
+      if ("modeHiddenThreat" in j) modeHiddenThreat = asBool(j.modeHiddenThreat);
+      else if ("mode_hidden_threat" in j) modeHiddenThreat = asBool(j.mode_hidden_threat);
       if ("matchPaused" in j) matchPaused = asBool(j.matchPaused);
       else if ("match_paused" in j) matchPaused = asBool(j.match_paused);
 
@@ -323,8 +367,83 @@ function snapshotMatchState(room: Room): GameStateJson | null {
         matchSplashEliminationGameOver = asBool(j.matchSplashEliminationGameOver);
       else if ("match_splash_elimination_game_over" in j)
         matchSplashEliminationGameOver = asBool(j.match_splash_elimination_game_over);
+
+      spyGuessAttemptsUsed = num(j.spyGuessAttemptsUsed ?? j.spy_guess_attempts_used);
+      spyGuessCooldownUntil = num(j.spyGuessCooldownUntil ?? j.spy_guess_cooldown_until);
+      spyGuessVoteEndsAt = num(j.spyGuessVoteEndsAt ?? j.spy_guess_vote_ends_at);
+      spyGuessVoteStartsAt = num(j.spyGuessVoteStartsAt ?? j.spy_guess_vote_starts_at);
+      if ("spyGuessIsAutoWin" in j) spyGuessIsAutoWin = asBool(j.spyGuessIsAutoWin);
+      else if ("spy_guess_is_auto_win" in j) spyGuessIsAutoWin = asBool(j.spy_guess_is_auto_win);
+      if (typeof j.spyGuessText === "string") spyGuessText = j.spyGuessText;
+      else if (typeof j.spy_guess_text === "string") spyGuessText = j.spy_guess_text;
+      if (typeof j.spyGuessSpyId === "string") spyGuessSpyId = j.spyGuessSpyId;
+      else if (typeof j.spy_guess_spy_id === "string") spyGuessSpyId = j.spy_guess_spy_id;
+      spyGuessBallots = ingestStringRecord(j.spyGuessBallots ?? j.spy_guess_ballots);
+
+      spyKillAttemptsUsed = num(j.spyKillAttemptsUsed ?? j.spy_kill_attempts_used);
+      spyKillCooldownUntil = num(j.spyKillCooldownUntil ?? j.spy_kill_cooldown_until);
+      spyDiscussActionsUnlockAt = num(
+        j.spyDiscussActionsUnlockAt ?? j.spy_discuss_actions_unlock_at,
+      );
     } catch {
       /* ignore */
+    }
+  }
+
+  /**
+   * Поля spyGuess* + MapSchema бюллетеней: опираться только на `toJSON()` ненадёжно (Colyseus / порядок полей).
+   * Берём актуальные значения с корневого Schema — иначе UI голосования не монтируется, а попытка на сервере уже сжигается.
+   */
+  {
+    const raw = s as Record<string, unknown>;
+    const pickNum = (key: string, fallback: number) => {
+      const v = raw[key];
+      return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+    };
+    const pickStr = (key: string, fallback: string) => {
+      const v = raw[key];
+      return typeof v === "string" ? v : fallback;
+    };
+    spyGuessAttemptsUsed = pickNum("spyGuessAttemptsUsed", spyGuessAttemptsUsed);
+    spyGuessCooldownUntil = pickNum("spyGuessCooldownUntil", spyGuessCooldownUntil);
+    spyGuessVoteEndsAt = pickNum("spyGuessVoteEndsAt", spyGuessVoteEndsAt);
+    spyGuessVoteStartsAt = pickNum("spyGuessVoteStartsAt", spyGuessVoteStartsAt);
+    const autoWinRaw = raw.spyGuessIsAutoWin;
+    spyGuessIsAutoWin =
+      autoWinRaw === true || autoWinRaw === 1 || (typeof autoWinRaw === "string" && autoWinRaw === "1");
+    spyGuessText = pickStr("spyGuessText", spyGuessText);
+    spyGuessSpyId = pickStr("spyGuessSpyId", spyGuessSpyId);
+
+    if ("modeHiddenThreat" in raw) modeHiddenThreat = asBool(raw.modeHiddenThreat);
+    spyKillAttemptsUsed = pickNum("spyKillAttemptsUsed", spyKillAttemptsUsed);
+    spyKillCooldownUntil = pickNum("spyKillCooldownUntil", spyKillCooldownUntil);
+    spyDiscussActionsUnlockAt = pickNum(
+      "spyDiscussActionsUnlockAt",
+      spyDiscussActionsUnlockAt,
+    );
+
+    type SpyGuessBallotsRoot = {
+      forEach?: (cb: (v: unknown, k: string) => void) => void;
+      toJSON?: () => unknown;
+    };
+    const ballotsRoot = raw.spyGuessBallots as SpyGuessBallotsRoot | undefined;
+    if (ballotsRoot && typeof ballotsRoot === "object") {
+      try {
+        if (typeof ballotsRoot.toJSON === "function") {
+          const o = ballotsRoot.toJSON();
+          if (o && typeof o === "object" && !Array.isArray(o)) {
+            spyGuessBallots = ingestStringRecord(o as Record<string, unknown>);
+          }
+        } else if (typeof ballotsRoot.forEach === "function") {
+          const rec: Record<string, string> = {};
+          ballotsRoot.forEach((v, k) => {
+            if (typeof v === "string") rec[k] = v;
+          });
+          spyGuessBallots = rec;
+        }
+      } catch {
+        /* keep spyGuessBallots from JSON */
+      }
     }
   }
 
@@ -342,6 +461,7 @@ function snapshotMatchState(room: Room): GameStateJson | null {
     themeText,
     modeTheme,
     modeRole,
+    modeHiddenThreat,
     players,
     gameStartedAt,
     votingDurationSec,
@@ -365,6 +485,17 @@ function snapshotMatchState(room: Room): GameStateJson | null {
     matchSplashEliminatedId,
     matchSplashVotePercent,
     matchSplashEliminationGameOver,
+    spyGuessAttemptsUsed,
+    spyGuessCooldownUntil,
+    spyGuessVoteEndsAt,
+    spyGuessVoteStartsAt,
+    spyGuessIsAutoWin,
+    spyGuessText,
+    spyGuessSpyId,
+    spyGuessBallots,
+    spyKillAttemptsUsed,
+    spyKillCooldownUntil,
+    spyDiscussActionsUnlockAt,
   };
 }
 
@@ -435,7 +566,7 @@ function formatClock(totalSec: number): string {
   return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 }
 
-function toLobbyPlayers(rows: MatchPlayerJson[], roomId: string): Player[] {
+function toLobbyPlayers(rows: MatchPlayerJson[], roomId: string): GamePlayer[] {
   return [...rows]
     .sort((a, b) => a.nickname.localeCompare(b.nickname))
     .map((p) => ({
@@ -446,7 +577,8 @@ function toLobbyPlayers(rows: MatchPlayerJson[], roomId: string): Player[] {
       room_id: roomId,
       joined_at: "",
       is_alive: !p.eliminated,
-      death_reason: p.eliminated ? ("voted" as const) : null,
+      death_reason: p.eliminated ? (p.deathReason === "killed" ? ("killed" as const) : ("voted" as const)) : null,
+      is_spy: p.isSpy,
     }));
 }
 
@@ -463,9 +595,23 @@ const VOTE_OVERLAY_STAGES_BEFORE_ELIMINATION_SPLASH = new Set([
   "intermission_revote_no_vote",
 ]);
 
+/** После проигрыша Emergency intro — при F5 в той же фазе голосования анимацию не повторяем. */
+const SPY_GUESS_INTRO_DONE_STORAGE_PREFIX = "spyfall_spyguess_intro_done:";
+
 function syncPlayPageMusicForState(json: GameStateJson | null): void {
   if (!json) return;
-  const { phase, voteStage } = json;
+  const spyGuessMusicActive =
+    json.phase === "discussion" &&
+    json.spyGuessVoteEndsAt > 0 &&
+    !!json.spyGuessSpyId;
+  if (spyGuessMusicActive) {
+    stopVoteMusic();
+    startSpyGuessMusic();
+    return;
+  }
+  stopSpyGuessMusic();
+
+  const { phase, voteStage, matchSplashType } = json;
   const votingUi = phase === "voting" && voteStage !== "elimination_splash";
   if (votingUi) {
     const round =
@@ -479,7 +625,16 @@ function syncPlayPageMusicForState(json: GameStateJson | null): void {
     if (round) startVoteMusic(round);
   } else {
     stopVoteMusic();
-    if (phase === "discussion") startGameMusic();
+    const eliminationSplash =
+      phase === "voting" && voteStage === "elimination_splash";
+    const endedWithSplash =
+      phase === "ended" &&
+      Boolean(matchSplashType) &&
+      MATCH_COLYSEUS_SPLASH_TYPES.has(matchSplashType);
+    const spyKillSplash = phase === "discussion" && matchSplashType === "spy_kill";
+    if (phase === "discussion" || eliminationSplash || endedWithSplash || spyKillSplash) {
+      startGameMusic();
+    }
   }
 }
 
@@ -554,6 +709,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
   const colyseusRoomRef = useRef<Room | null>(null);
   const prevVoteStageRef = useRef<string | undefined>(undefined);
   const suppressSplashUntilVoteExitRef = useRef(false);
+  const prevSpyGuessSessionKeyRef = useRef<string | null>(null);
   /** false с момента входа в elimination_splash из фазы голосования до onExitComplete оверлея — без setState, синхронно в рендере. */
   const eliminationSplashAllowedAfterVoteExitRef = useRef(true);
   const [colyseusRoom, setColyseusRoom] = useState<Room | null>(null);
@@ -601,10 +757,22 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
 
   useEffect(() => {
     syncPlayPageMusicForState(stateJson);
-  }, [stateJson?.phase, stateJson?.voteStage]);
+  }, [
+    stateJson?.phase,
+    stateJson?.voteStage,
+    stateJson?.matchSplashType,
+    stateJson?.spyGuessVoteEndsAt,
+    stateJson?.spyGuessSpyId,
+  ]);
 
   const stateJsonMusicRef = useRef(stateJson);
   stateJsonMusicRef.current = stateJson;
+  useEffect(() => {
+    setMatchMusicBootstrapHandler(() => {
+      syncPlayPageMusicForState(stateJsonMusicRef.current);
+    });
+    return () => setMatchMusicBootstrapHandler(null);
+  }, []);
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "visible") {
@@ -1042,9 +1210,17 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
   }, [sessionId, lobbyPlayerId, stopRouteLoader, setUiReady]);
 
   const now = Date.now() + clockSkewMs;
+  /** Пока идёт угадайка шпиона — глобальный таймер как при голосовании: остаток из `discussionTimerRemainingMs`. */
+  const spyGuessFreezesDiscussionClock =
+    stateJson?.phase === "discussion" &&
+    stateJson.matchEndsAt > 0 &&
+    (stateJson.spyGuessVoteEndsAt > 0 ||
+      (stateJson.matchSplashType === "spy_kill" && stateJson.matchSplashEndsAt > 0));
   const discussionRemainingMs =
     stateJson?.phase === "discussion" && stateJson.matchEndsAt > 0
-      ? Math.max(0, stateJson.matchEndsAt - now)
+      ? spyGuessFreezesDiscussionClock
+        ? Math.max(0, stateJson.discussionTimerRemainingMs)
+        : Math.max(0, stateJson.matchEndsAt - now)
       : 0;
   const remainingSec = Math.ceil(discussionRemainingMs / 1000);
 
@@ -1125,7 +1301,12 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     isVotingPhase && stateJson
       ? Math.max(0, Math.ceil(stateJson.discussionTimerRemainingMs / 1000))
       : 0;
-  const timerExpired = isDiscussion && stateJson != null && stateJson.matchEndsAt > 0 && remainingSec <= 0;
+  const timerExpired =
+    isDiscussion &&
+    stateJson != null &&
+    stateJson.matchEndsAt > 0 &&
+    !spyGuessFreezesDiscussionClock &&
+    remainingSec <= 0;
   const clockDisplay = isEndedPhase
     ? "--:--"
     : isVotingPhase
@@ -1171,10 +1352,274 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     : !isDiscussion
       ? "ИДЁТ ГОЛОСОВАНИЕ"
       : earlyLimitReached
-      ? "ЛИМИТ ДОСРОЧНЫХ (2/2)"
-      : earlyLockRemainSec > 0
-        ? `ДОСТУПНО ЧЕРЕЗ ${formatEarlyLock(earlyLockRemainSec)}`
-        : "ГОЛОСОВАНИЕ НЕДОСТУПНО";
+        ? "ЛИМИТ ДОСРОЧНЫХ (2/2)"
+        : earlyLockRemainSec > 0
+          ? `ДОСТУПНО ЧЕРЕЗ ${formatEarlyLock(earlyLockRemainSec)}`
+          : "ГОЛОСОВАНИЕ НЕДОСТУПНО";
+
+  const [spyGuessModalOpen, setSpyGuessModalOpen] = useState(false);
+  const [spyKillModalOpen, setSpyKillModalOpen] = useState(false);
+  /** Exit-fall Emergency завершён — снимаем intro-слой. */
+  const [spyGuessCinematicDone, setSpyGuessCinematicDone] = useState(false);
+  /** Старт exit-fall — в этот же момент монтируем Splash под Emergency. */
+  const [spyGuessExitFallStarted, setSpyGuessExitFallStarted] = useState(false);
+
+  const spyGuessSessionKey = useMemo(() => {
+    if (!stateJson || !isDiscussion) return null;
+    if (stateJson.spyGuessVoteEndsAt <= 0 || !stateJson.spyGuessSpyId) return null;
+    return `${stateJson.spyGuessSpyId}:${stateJson.spyGuessVoteStartsAt}:${stateJson.spyGuessText}`;
+  }, [stateJson, isDiscussion]);
+
+  /** Синхронно с первого кадра (до useEffect): F5 — не монтировать Emergency, не играть VFX. */
+  const spyGuessIntroDoneInStorage = useMemo(() => {
+    if (!spyGuessSessionKey || typeof window === "undefined") return false;
+    try {
+      return sessionStorage.getItem(SPY_GUESS_INTRO_DONE_STORAGE_PREFIX + spyGuessSessionKey) === "1";
+    } catch {
+      return false;
+    }
+  }, [spyGuessSessionKey]);
+
+  useEffect(() => {
+    if (!spyGuessIntroDoneInStorage) return;
+    syncPlayPageMusicForState(stateJson);
+  }, [spyGuessIntroDoneInStorage, stateJson]);
+
+  const spyGuessLegacyNoCinematic =
+    !!stateJson &&
+    isDiscussion &&
+    stateJson.spyGuessVoteEndsAt > 0 &&
+    !!stateJson.spyGuessSpyId &&
+    stateJson.spyGuessVoteStartsAt <= 0;
+
+  useEffect(() => {
+    if (!spyGuessSessionKey) {
+      const prevKey = prevSpyGuessSessionKeyRef.current;
+      if (prevKey && typeof window !== "undefined") {
+        try {
+          sessionStorage.removeItem(SPY_GUESS_INTRO_DONE_STORAGE_PREFIX + prevKey);
+        } catch {
+          /* private mode */
+        }
+      }
+      prevSpyGuessSessionKeyRef.current = null;
+      setSpyGuessCinematicDone(false);
+      setSpyGuessExitFallStarted(false);
+      return;
+    }
+    if (prevSpyGuessSessionKeyRef.current !== spyGuessSessionKey) {
+      const oldKey = prevSpyGuessSessionKeyRef.current;
+      if (oldKey && typeof window !== "undefined") {
+        try {
+          sessionStorage.removeItem(SPY_GUESS_INTRO_DONE_STORAGE_PREFIX + oldKey);
+        } catch {
+          /* private mode */
+        }
+      }
+      prevSpyGuessSessionKeyRef.current = spyGuessSessionKey;
+      setSpyGuessCinematicDone(false);
+      setSpyGuessExitFallStarted(false);
+    }
+  }, [spyGuessSessionKey]);
+
+  useEffect(() => {
+    if (spyGuessLegacyNoCinematic) {
+      setSpyGuessCinematicDone(true);
+      setSpyGuessExitFallStarted(true);
+    }
+  }, [spyGuessLegacyNoCinematic]);
+
+  const spyGuessVoteGatePassed =
+    !!stateJson &&
+    isDiscussion &&
+    stateJson.spyGuessVoteEndsAt > 0 &&
+    (spyGuessLegacyNoCinematic || stateJson.spyGuessVoteStartsAt <= now);
+
+  /** Сколько целых секунд до приёма голосов на сервере (`spyGuessVoteStartsAt`). */
+  const spyGuessVoteOpensRemainSec =
+    stateJson &&
+    isDiscussion &&
+    stateJson.spyGuessVoteEndsAt > 0 &&
+    stateJson.spyGuessVoteStartsAt > 0 &&
+    now < stateJson.spyGuessVoteStartsAt
+      ? Math.max(0, Math.ceil((stateJson.spyGuessVoteStartsAt - now) / 1000))
+      : 0;
+
+  const showSpyGuessCinematic =
+    !!stateJson &&
+    isDiscussion &&
+    stateJson.spyGuessVoteEndsAt > 0 &&
+    !!stateJson.spyGuessSpyId &&
+    !spyGuessLegacyNoCinematic &&
+    !spyGuessCinematicDone &&
+    !spyGuessIntroDoneInStorage;
+
+  const showSpyGuessVoteOverlay =
+    !!stateJson &&
+    isDiscussion &&
+    stateJson.spyGuessVoteEndsAt > 0 &&
+    !!stateJson.spyGuessSpyId &&
+    (spyGuessLegacyNoCinematic || spyGuessExitFallStarted || spyGuessIntroDoneInStorage);
+
+  const spyGuessCooldownRemainSec =
+    stateJson != null &&
+    isDiscussion &&
+    stateJson.spyGuessCooldownUntil > now &&
+    stateJson.spyGuessAttemptsUsed > 0 &&
+    stateJson.spyGuessAttemptsUsed < 2
+      ? Math.max(0, Math.ceil((stateJson.spyGuessCooldownUntil - now) / 1000))
+      : 0;
+
+  const spyKillCooldownRemainSec =
+    stateJson != null &&
+    isDiscussion &&
+    stateJson.modeHiddenThreat &&
+    stateJson.spyKillCooldownUntil > now &&
+    stateJson.spyKillAttemptsUsed < 2
+      ? Math.max(0, Math.ceil((stateJson.spyKillCooldownUntil - now) / 1000))
+      : 0;
+
+  const spyBlockLive = useMemo(() => {
+    if (!stateJson || !isDiscussion || me?.isSpy !== true || meEliminated || isEndedPhase) return null;
+    const attempts = stateJson.spyGuessAttemptsUsed;
+    const kills = stateJson.spyKillAttemptsUsed;
+    const modeHiddenThreat = stateJson.modeHiddenThreat === true;
+    const voteOpen = stateJson.spyGuessVoteEndsAt > 0;
+    const killSplash = stateJson.matchSplashType === "spy_kill";
+    const cooldown = spyGuessCooldownRemainSec > 0;
+    const lowPlayers = alivePlayerCount < 4;
+    const combinedExhausted = modeHiddenThreat && attempts + kills >= 2;
+    const guessMaxed = attempts >= 2 || combinedExhausted;
+    const roundGateActive =
+      modeHiddenThreat && now < stateJson.spyDiscussActionsUnlockAt && attempts + kills < 2;
+
+    const guessDisabled =
+      status !== "ok" ||
+      voteOpen ||
+      cooldown ||
+      attempts >= 2 ||
+      (modeHiddenThreat && combinedExhausted && !voteOpen) ||
+      (modeHiddenThreat && lowPlayers) ||
+      (modeHiddenThreat && killSplash) ||
+      roundGateActive;
+
+    const killCooldownActive = modeHiddenThreat && spyKillCooldownRemainSec > 0;
+    const killDisabled =
+      !modeHiddenThreat ||
+      status !== "ok" ||
+      voteOpen ||
+      killSplash ||
+      lowPlayers ||
+      kills >= 2 ||
+      combinedExhausted ||
+      killCooldownActive ||
+      roundGateActive;
+
+    const canGuess = !guessMaxed && !guessDisabled;
+    const killUsedVisual = kills >= 2 || combinedExhausted;
+    const canKill = modeHiddenThreat && !killUsedVisual && !killDisabled;
+
+    const usedActions = modeHiddenThreat ? attempts + kills : attempts;
+
+    const unlockCandidates: number[] = [];
+    if (modeHiddenThreat && attempts + kills < 2) {
+      const u = stateJson.spyDiscussActionsUnlockAt;
+      if (u > now) unlockCandidates.push(u);
+    }
+    if (stateJson.spyGuessCooldownUntil > now && attempts > 0 && attempts < 2) {
+      unlockCandidates.push(stateJson.spyGuessCooldownUntil);
+    }
+    if (stateJson.spyKillCooldownUntil > now && kills < 2 && attempts + kills < 2) {
+      unlockCandidates.push(stateJson.spyKillCooldownUntil);
+    }
+    const nextUnlockAt = unlockCandidates.length > 0 ? Math.min(...unlockCandidates) : 0;
+    const nextUnlockRemainSec =
+      nextUnlockAt > now ? Math.max(0, Math.ceil((nextUnlockAt - now) / 1000)) : 0;
+
+    const exhaustedHidden = modeHiddenThreat && attempts + kills >= 2;
+    const exhaustedPlain = !modeHiddenThreat && attempts >= 2;
+
+    let actionStatusLine = "";
+    if (killSplash) {
+      actionStatusLine = "";
+    } else if (voteOpen) {
+      actionStatusLine = "Идёт голосование по попытке угадать.";
+    } else if (modeHiddenThreat && lowPlayers && attempts + kills >= 1) {
+      actionStatusLine = "Все действия использованы.";
+    } else if (modeHiddenThreat && lowPlayers) {
+      actionStatusLine = "Нужно минимум 4 игрока в игре.";
+    } else if (
+      nextUnlockRemainSec > 0 &&
+      !voteOpen &&
+      !exhaustedHidden &&
+      !exhaustedPlain &&
+      !(modeHiddenThreat && lowPlayers)
+    ) {
+      actionStatusLine = `Будет доступно через ${formatEarlyLock(nextUnlockRemainSec)}`;
+    } else {
+      actionStatusLine = `Использовано действий ${usedActions}/2`;
+    }
+
+    const buttonsMuted =
+      voteOpen ||
+      killSplash ||
+      exhaustedHidden ||
+      exhaustedPlain ||
+      (modeHiddenThreat && lowPlayers) ||
+      nextUnlockRemainSec > 0;
+
+    return {
+      modeHiddenThreat,
+      actionStatusLine,
+      buttonsMuted,
+      guessDisabled,
+      guessUsed: guessMaxed,
+      onGuessClick: () => setSpyGuessModalOpen(true),
+      subtitle: "Только 2 действия за игру. Перезарядка — 3 мин",
+      killDisabled,
+      killUsed: kills >= 2 || combinedExhausted,
+      onKillClick: () => setSpyKillModalOpen(true),
+    };
+  }, [
+    stateJson,
+    isDiscussion,
+    me?.isSpy,
+    meEliminated,
+    isEndedPhase,
+    status,
+    spyGuessCooldownRemainSec,
+    spyKillCooldownRemainSec,
+    alivePlayerCount,
+    now,
+  ]);
+
+  const spyGuessEligibleIds = useMemo(() => {
+    if (!stateJson?.spyGuessSpyId) return [];
+    const sid = stateJson.spyGuessSpyId;
+    return playerRows.filter((p) => !p.eliminated && p.id !== sid).map((p) => p.id);
+  }, [stateJson?.spyGuessSpyId, playerRows]);
+
+  const submitSpyGuess = useCallback((text: string) => {
+    colyseusRoomRef.current?.send(WS_CLIENT_MESSAGE.spyGuessSubmit, { text });
+  }, []);
+
+  const submitSpyKill = useCallback((targetId: string) => {
+    colyseusRoomRef.current?.send(WS_CLIENT_MESSAGE.spyKillSubmit, { targetId });
+  }, []);
+
+  const castSpyGuessVote = useCallback((vote: "yes" | "no") => {
+    colyseusRoomRef.current?.send(WS_CLIENT_MESSAGE.spyGuessVoteCast, { vote });
+  }, []);
+
+  useEffect(() => {
+    if (stateJson?.spyGuessVoteEndsAt && stateJson.spyGuessVoteEndsAt > 0) {
+      setSpyGuessModalOpen(false);
+    }
+  }, [stateJson?.spyGuessVoteEndsAt]);
+
+  useEffect(() => {
+    if (stateJson?.matchSplashType === "spy_kill") setSpyKillModalOpen(false);
+  }, [stateJson?.matchSplashType]);
 
   const votingPlayersById = useMemo(() => {
     if (!stateJson) return {};
@@ -1471,7 +1916,60 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
         onEarlyVoteToggle={() => colyseusRoomRef.current?.send(WS_CLIENT_MESSAGE.earlyVoteToggle, {})}
         earlyVoteDisabled={status !== "ok"}
         earlyVoteEliminated={meEliminated}
+        spyBlockLive={spyBlockLive}
       />
+      <MatchSpyGuessLocationModal
+        open={spyGuessModalOpen}
+        onClose={() => setSpyGuessModalOpen(false)}
+        onSubmit={submitSpyGuess}
+      />
+      <MatchSpyEliminateModal
+        open={spyKillModalOpen}
+        onClose={() => setSpyKillModalOpen(false)}
+        players={listPlayers}
+        onEliminate={submitSpyKill}
+      />
+      {stateJson && showSpyGuessVoteOverlay ? (
+        <MatchSpyGuessVoteOverlay
+          open
+          guessText={stateJson.spyGuessText}
+          spyGuessSpyId={stateJson.spyGuessSpyId}
+          eligibleIds={spyGuessEligibleIds}
+          ballots={stateJson.spyGuessBallots}
+          currentPlayerId={effectivePlayerId}
+          voteEndsAt={stateJson.spyGuessVoteEndsAt}
+          clockSkewMs={clockSkewMs}
+          voteStartsAtMs={stateJson.spyGuessVoteStartsAt}
+          underEmergencyLayer={showSpyGuessCinematic}
+          votingLocked={!spyGuessVoteGatePassed}
+          voteOpensRemainSec={spyGuessVoteOpensRemainSec}
+          isAutoWin={stateJson.spyGuessIsAutoWin === true}
+          onVote={castSpyGuessVote}
+        />
+      ) : null}
+      {showSpyGuessCinematic && spyGuessSessionKey ? (
+        <MatchSpyGuessEmergencyIntroLayer
+          key={spyGuessSessionKey}
+          variant="match"
+          open
+          onClose={() => {}}
+          onExitFallStart={() => setSpyGuessExitFallStarted(true)}
+          onMatchCinematicComplete={() => {
+            setSpyGuessCinematicDone(true);
+            if (typeof window !== "undefined" && spyGuessSessionKey) {
+              try {
+                sessionStorage.setItem(
+                  SPY_GUESS_INTRO_DONE_STORAGE_PREFIX + spyGuessSessionKey,
+                  "1",
+                );
+              } catch {
+                /* private mode */
+              }
+            }
+          }}
+          hint={null}
+        />
+      ) : null}
     </MatchPauseProvider>
   );
 }

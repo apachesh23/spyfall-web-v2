@@ -13,6 +13,7 @@ export class MatchPlayerState extends Schema {
   declare roleAtLocation: string;
   declare spyCardUrl: string;
   declare eliminated: boolean;
+  declare deathReason: string;
 }
 defineTypes(MatchPlayerState, {
   id: "string",
@@ -23,6 +24,7 @@ defineTypes(MatchPlayerState, {
   roleAtLocation: "string",
   spyCardUrl: "string",
   eliminated: "boolean",
+  deathReason: "string",
 });
 
 export class GameState extends Schema {
@@ -35,6 +37,7 @@ export class GameState extends Schema {
   declare themeText: string;
   declare modeTheme: boolean;
   declare modeRole: boolean;
+  declare modeHiddenThreat: boolean;
   declare players: MapSchema<MatchPlayerState>;
 
   declare gameStartedAt: number;
@@ -60,10 +63,27 @@ export class GameState extends Schema {
   declare matchSplashVotePercent: number;
   declare matchSplashEliminationGameOver: boolean;
 
+  /** Сколько раз шпион уже «сжёг» попытку угадать (0–2). */
+  declare spyGuessAttemptsUsed: number;
+  /** Epoch ms: до этого момента кнопка заблокирована перезарядкой (после 1-й попытки). */
+  declare spyGuessCooldownUntil: number;
+  /** >0 — идёт голосование мирных по формулировке шпиона. */
+  declare spyGuessVoteEndsAt: number;
+  declare spyGuessVoteStartsAt: number;
+  declare spyGuessIsAutoWin: boolean;
+  declare spyGuessText: string;
+  declare spyGuessSpyId: string;
+  declare spyGuessBallots: MapSchema<string>;
+
+  declare spyKillAttemptsUsed: number;
+  declare spyKillCooldownUntil: number;
+  declare spyDiscussActionsUnlockAt: number;
+
   constructor() {
     super();
     this.players = new MapSchema<MatchPlayerState>();
     this.matchPaused = false;
+    this.modeHiddenThreat = false;
     this.gameStartedAt = 0;
     this.votingDurationSec = 60;
     this.firstEarlyVoteAfterAt = 0;
@@ -86,6 +106,17 @@ export class GameState extends Schema {
     this.matchSplashEliminatedId = "";
     this.matchSplashVotePercent = 0;
     this.matchSplashEliminationGameOver = false;
+    this.spyGuessAttemptsUsed = 0;
+    this.spyGuessCooldownUntil = 0;
+    this.spyGuessVoteEndsAt = 0;
+    this.spyGuessVoteStartsAt = 0;
+    this.spyGuessIsAutoWin = false;
+    this.spyGuessText = "";
+    this.spyGuessSpyId = "";
+    this.spyGuessBallots = new MapSchema<string>();
+    this.spyKillAttemptsUsed = 0;
+    this.spyKillCooldownUntil = 0;
+    this.spyDiscussActionsUnlockAt = 0;
   }
 }
 defineTypes(GameState, {
@@ -98,6 +129,7 @@ defineTypes(GameState, {
   themeText: "string",
   modeTheme: "boolean",
   modeRole: "boolean",
+  modeHiddenThreat: "boolean",
   players: { map: MatchPlayerState },
   gameStartedAt: "number",
   votingDurationSec: "number",
@@ -121,4 +153,15 @@ defineTypes(GameState, {
   matchSplashEliminatedId: "string",
   matchSplashVotePercent: "number",
   matchSplashEliminationGameOver: "boolean",
+  spyGuessAttemptsUsed: "number",
+  spyGuessCooldownUntil: "number",
+  spyGuessVoteEndsAt: "number",
+  spyGuessVoteStartsAt: "number",
+  spyGuessIsAutoWin: "boolean",
+  spyGuessText: "string",
+  spyGuessSpyId: "string",
+  spyGuessBallots: { map: "string" },
+  spyKillAttemptsUsed: "number",
+  spyKillCooldownUntil: "number",
+  spyDiscussActionsUnlockAt: "number",
 });

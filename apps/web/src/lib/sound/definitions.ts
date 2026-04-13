@@ -32,7 +32,7 @@ export type UISoundId = keyof typeof UI_SOUNDS;
 export const VFX_SOUNDS = {
   woosh_in: {
     src: '/sounds/vfx/woosh3.mp3',
-    baseVolume: 0.1,
+    baseVolume: 0.075,
   },
   woosh_out: {
     src: '/sounds/vfx/woosh2.mp3',
@@ -70,6 +70,28 @@ export const VFX_SOUNDS = {
     src: '/sounds/vfx/ball-win.mp3',
     baseVolume: 0.1,
   },
+  /** Emergency intro: прилёт композиции. */
+  emergency_hit: {
+    src: '/sounds/vfx/emergency_hit.mp3',
+    baseVolume: 0.08,
+  },
+  emergency_open: {
+    src: '/sounds/vfx/emergency_open.mp3',
+    baseVolume: 0.12,
+  },
+  emergency_press: {
+    src: '/sounds/vfx/emergency_press.mp3',
+    baseVolume: 0.1,
+  },
+  emergency_alarm: {
+    src: '/sounds/vfx/emergency_alarm.mp3',
+    baseVolume: 0.08,
+  },
+  /** Emergency intro: падение / закрытие превью. */
+  emergency_swoosh: {
+    src: '/sounds/vfx/emergency_swoosh.mp3',
+    baseVolume: 0.02,
+  },
 } as const;
 
 export type VFXSoundId = keyof typeof VFX_SOUNDS;
@@ -105,6 +127,10 @@ export const MUSIC_TRACKS = {
   },
   vote2: {
     src: '/sounds/music/vote/vote2.mp3',
+    baseVolume: 0.02,
+  },
+  guess: {
+    src: '/sounds/music/guess.mp3',
     baseVolume: 0.02,
   },
 } as const;

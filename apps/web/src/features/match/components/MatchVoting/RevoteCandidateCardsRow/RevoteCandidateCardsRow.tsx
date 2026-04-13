@@ -73,6 +73,7 @@ export function RevoteCandidateCardsRow({
           selected={false}
           disabled
           onSelect={() => {}}
+          revoteTeam="red"
         />
       </motion.div>
       <div className={styles.revoteVsMiddle}>{centerSlot}</div>
@@ -90,6 +91,7 @@ export function RevoteCandidateCardsRow({
           selected={false}
           disabled
           onSelect={() => {}}
+          revoteTeam="blue"
         />
       </motion.div>
     </div>
