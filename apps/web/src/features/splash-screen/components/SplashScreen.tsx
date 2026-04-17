@@ -59,9 +59,24 @@ const victoryTopWaveDelay = VICTORY_FIRST_WAVE.delay + VICTORY_FIRST_WAVE.topBlo
  */
 export const VICTORY_AVATAR_ANIMATION = {
   avatarDelay: 1.8,
+  /** Длительность spring-анимации аватарки+ника (сек); в коде нет `onAnimationComplete`. */
+  avatarDuration: 0.45,
   avatarStartY: -30,
   avatarEndY: 0,
 } as const;
+
+/**
+ * Примерное время (сек) от монтирования оверлея профиля до конца **влёта** аватарки+ника
+ * (задержка верхней волны + delay/duration блока шпиона). Не учитывает exit баннера.
+ */
+export function getVictoryProfileAvatarFlyInEndSec(): number {
+  return (
+    VICTORY_FIRST_WAVE.delay +
+    VICTORY_FIRST_WAVE.topBlockDelay +
+    VICTORY_AVATAR_ANIMATION.avatarDelay +
+    VICTORY_AVATAR_ANIMATION.avatarDuration
+  );
+}
 
 /** Размеры: ball.json и круглый аватар в блоке победы */
 const VICTORY_BALL_SIZE = 200;
@@ -138,9 +153,11 @@ export function SplashScreen({
   victoryEndGameBusy = false,
   players = [],
   spyIds,
+  guessedSpyId,
   eliminatedPlayer,
-  eliminatedWasSpy,
+  eliminatedWasSpy: _eliminatedWasSpy,
   eliminatedVotePercent,
+  initialSpyCount,
 }: SplashScreenProps) {
   const config = SPLASH_CONFIG[type];
   const content = SPLASH_CONTENT[type];
@@ -159,19 +176,35 @@ export function SplashScreen({
 
   const isVictoryType = VICTORY_TYPES.includes(type);
   const isProfileType = PROFILE_TYPES.includes(type);
+
+  /** Все шпионы из ростера (для победных сплэшей шпионов — разлёт карточек). */
+  const allSpiesOrdered = useMemo(() => {
+    if (!players?.length) return [];
+    const set = new Set(spyIds ?? []);
+    if (!set.size) {
+      return players
+        .filter((p) => p.is_spy === true)
+        .sort((a, b) => a.id.localeCompare(b.id));
+    }
+    return players.filter((p) => set.has(p.id)).sort((a, b) => a.id.localeCompare(b.id));
+  }, [players, spyIds]);
+  const spyRosterKey = useMemo(() => allSpiesOrdered.map((p) => p.id).join(), [allSpiesOrdered]);
+
   const spyPlayer = useMemo(() => {
     if (!isProfileType || !players?.length) return null;
     if (type === 'voting_kicked_civilian' && eliminatedPlayer) return null;
+    if (type === 'game_over_spy_win' && guessedSpyId) {
+      return allSpiesOrdered.find((p) => p.id === guessedSpyId) ?? null;
+    }
+    if (type === 'game_over_spy_win_voting' && allSpiesOrdered.length >= 2) {
+      return allSpiesOrdered.length >= 3 ? (allSpiesOrdered[1] ?? null) : (allSpiesOrdered[0] ?? null);
+    }
     if (spyIds?.length) {
       const found = players.find((p) => spyIds.includes(p.id));
       return found ?? null;
     }
     return pickRandomSpy(players);
-  }, [isProfileType, type, players, spyIds, eliminatedPlayer]);
-  const eliminatedRoleLabel =
-    type === 'voting_kicked_civilian' && eliminatedPlayer
-      ? (eliminatedWasSpy ? 'Шпион' : 'Мирный агент')
-      : 'Мирный агент';
+  }, [isProfileType, type, players, spyIds, eliminatedPlayer, allSpiesOrdered]);
   const profilePlayer = (type === 'voting_kicked_civilian' || type === 'spy_kill') && eliminatedPlayer
     ? { id: '', nickname: eliminatedPlayer.nickname, avatar_id: eliminatedPlayer.avatar_id }
     : spyPlayer;
@@ -196,8 +229,39 @@ export function SplashScreen({
       : 0,
   );
   const [showCountdownNumber, setShowCountdownNumber] = useState(false);
+  const [spyVotingVictoryScatter, setSpyVotingVictoryScatter] = useState(false);
   const prevCountRef = useRef(count);
   const countdownClosedRef = useRef(false);
+
+  const spyVictoryMulti =
+    (type === 'game_over_spy_win_voting' ||
+      type === 'game_over_spy_win' ||
+      type === 'game_over_civilians_win') &&
+    allSpiesOrdered.length >= 2;
+
+  const getSpyVictoryStatus = useCallback((spyId: string) => {
+    if (type === 'game_over_civilians_win') {
+      return { text: 'РАСКРЫТ', toneClass: styles.spyVictoryToneRevealed };
+    }
+    if (type === 'game_over_spy_win' && guessedSpyId && spyId === guessedSpyId) {
+      return { text: 'УГАДАЛ', toneClass: styles.spyVictoryToneGuessed };
+    }
+    const spy = allSpiesOrdered.find((p) => p.id === spyId);
+    const revealed = spy?.eliminated === true;
+    if (revealed) return { text: 'РАСКРЫТ', toneClass: styles.spyVictoryToneRevealed };
+    return { text: 'ВЫЖИЛ', toneClass: styles.spyVictoryToneAccent };
+  }, [type, guessedSpyId, allSpiesOrdered]);
+
+  useEffect(() => {
+    if (!spyVictoryMulti) {
+      setSpyVotingVictoryScatter(false);
+      return;
+    }
+    setSpyVotingVictoryScatter(false);
+    const ms = Math.round(getVictoryProfileAvatarFlyInEndSec() * 1000);
+    const id = window.setTimeout(() => setSpyVotingVictoryScatter(true), ms);
+    return () => window.clearTimeout(id);
+  }, [spyVictoryMulti, type, eventAtProp, endsAtProp, spyRosterKey]);
 
   useEffect(() => {
     countdownClosedRef.current = false;
@@ -483,46 +547,154 @@ export function SplashScreen({
                     exit={{ opacity: 0 }}
                   >
                     <LottieIcon src={VICTORY_LOTTIE_TOP} autoplayOnce size={VICTORY_BALL_SIZE} />
-                    {profilePlayer && (
-                      <motion.div
-                        className={styles.victorySpyBlock}
-                        initial={{
-                          opacity: 0,
-                          scale: 0,
-                          y: VICTORY_AVATAR_ANIMATION.avatarStartY,
-                        }}
-                        animate={{
-                          opacity: 1,
-                          scale: 1,
-                          y: VICTORY_AVATAR_ANIMATION.avatarEndY,
-                          transition: {
-                            delay: VICTORY_AVATAR_ANIMATION.avatarDelay,
-                            duration: 0.45,
-                            ease: [0.34, 1.56, 0.64, 1],
-                          },
-                        }}
-                      >
-                        <div className={styles.victorySpyAvatarWrap}>
-                          <PlayerAvatar
-                            avatarId={profilePlayer.avatar_id}
-                            size="lg"
-                            className={styles.victorySpyAvatar}
-                          />
-                        </div>
-                        <span className={styles.victorySpyNickname}>{profilePlayer.nickname}</span>
-                        <span className={styles.victorySpyLabel}>
-                          {type === 'spy_kill'
-                            ? 'БЫЛ УБИТ ШПИОНОМ'
-                            : type === 'voting_kicked_civilian'
-                            ? eliminatedRoleLabel.toUpperCase()
-                            : 'ШПИОН'}
-                        </span>
-                        {type === 'voting_kicked_civilian' && eliminatedVotePercent != null && (
-                          <span className={styles.votingVotePercent}>
-                            Набрал {eliminatedVotePercent}% голосов
+                    {profilePlayer && spyVictoryMulti ? (
+                      <div className={styles.victorySpyUnderBall}>
+                        <AnimatePresence mode="sync">
+                          {!spyVotingVictoryScatter ? (
+                            <motion.div
+                              key="spy-voting-flyin"
+                              className={styles.victorySpyBlock}
+                              initial={{
+                                opacity: 0,
+                                scale: 0,
+                                y: VICTORY_AVATAR_ANIMATION.avatarStartY,
+                              }}
+                              animate={{
+                                opacity: 1,
+                                scale: 1,
+                                y: VICTORY_AVATAR_ANIMATION.avatarEndY,
+                                transition: {
+                                  delay: VICTORY_AVATAR_ANIMATION.avatarDelay,
+                                  duration: VICTORY_AVATAR_ANIMATION.avatarDuration,
+                                  ease: [0.34, 1.56, 0.64, 1],
+                                },
+                              }}
+                              exit={{
+                                opacity: 0,
+                                transition: { duration: 0.05 },
+                              }}
+                            >
+                              <div className={styles.victorySpyAvatarWrap}>
+                                <PlayerAvatar
+                                  avatarId={profilePlayer.avatar_id}
+                                  size="lg"
+                                  className={styles.victorySpyAvatar}
+                                />
+                              </div>
+                              <span
+                                className={`${styles.victorySpyNickname} ${getSpyVictoryStatus(profilePlayer.id).toneClass}`}
+                              >
+                                {profilePlayer.nickname}
+                              </span>
+                              <span
+                                className={`${styles.victorySpyLabel} ${getSpyVictoryStatus(profilePlayer.id).toneClass}`}
+                              >
+                                {getSpyVictoryStatus(profilePlayer.id).text}
+                              </span>
+                            </motion.div>
+                          ) : (
+                            <motion.div
+                              key="spy-voting-scatter"
+                              className={styles.spyVictoryScatterStage}
+                              initial={{ opacity: 1 }}
+                              animate={{ opacity: 1 }}
+                            >
+                              {allSpiesOrdered.map((spy, i) => {
+                                const n = allSpiesOrdered.length;
+                                const scatterX =
+                                  n === 2 ? (i === 0 ? -58 : 58) : i === 0 ? -92 : i === 1 ? 0 : 92;
+                                const spyStatus = getSpyVictoryStatus(spy.id);
+                                return (
+                                  <motion.div
+                                    key={spy.id}
+                                    className={`${styles.spyVictoryScatterItem} ${styles.victorySpyBlock}`}
+                                    initial={{ opacity: 1, scale: 1, x: 0 }}
+                                    animate={{
+                                      x: scatterX,
+                                      transition: {
+                                        type: 'spring',
+                                        stiffness: 280,
+                                        damping: 32,
+                                        mass: 1,
+                                      },
+                                    }}
+                                  >
+                                    <div className={styles.victorySpyAvatarWrap}>
+                                      <PlayerAvatar
+                                        avatarId={spy.avatar_id}
+                                        size="lg"
+                                        className={styles.victorySpyAvatar}
+                                      />
+                                    </div>
+                                    <span className={`${styles.victorySpyNickname} ${spyStatus.toneClass}`}>{spy.nickname}</span>
+                                    <span
+                                      className={`${styles.victorySpyLabel} ${styles.spyVictoryScatterSpyLabel} ${spyStatus.toneClass}`}
+                                    >
+                                      {spyStatus.text}
+                                    </span>
+                                  </motion.div>
+                                );
+                              })}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    ) : (
+                      profilePlayer && (
+                        <motion.div
+                          className={styles.victorySpyBlock}
+                          initial={{
+                            opacity: 0,
+                            scale: 0,
+                            y: VICTORY_AVATAR_ANIMATION.avatarStartY,
+                          }}
+                          animate={{
+                            opacity: 1,
+                            scale: 1,
+                            y: VICTORY_AVATAR_ANIMATION.avatarEndY,
+                            transition: {
+                              delay: VICTORY_AVATAR_ANIMATION.avatarDelay,
+                              duration: VICTORY_AVATAR_ANIMATION.avatarDuration,
+                              ease: [0.34, 1.56, 0.64, 1],
+                            },
+                          }}
+                        >
+                          <div className={styles.victorySpyAvatarWrap}>
+                            <PlayerAvatar
+                              avatarId={profilePlayer.avatar_id}
+                              size="lg"
+                              className={styles.victorySpyAvatar}
+                            />
+                          </div>
+                          <span
+                            className={`${styles.victorySpyNickname} ${
+                              type === 'game_over_spy_win' ? styles.spyVictoryToneGuessed : ''
+                            }`}
+                          >
+                            {profilePlayer.nickname}
                           </span>
-                        )}
-                      </motion.div>
+                          <span
+                            className={`${styles.victorySpyLabel} ${
+                              type === 'game_over_spy_win' ? styles.spyVictoryToneGuessed : ''
+                            } ${
+                              type === 'voting_kicked_civilian' ? styles.votingEliminatedRoleLabel : ''
+                            }`}
+                          >
+                            {type === 'spy_kill'
+                              ? 'БЫЛ УБИТ ШПИОНОМ'
+                              : type === 'game_over_spy_win'
+                              ? 'УГАДАЛ'
+                              : type === 'voting_kicked_civilian'
+                              ? 'ЗАСЕКРЕЧЕНО'
+                              : 'ШПИОН'}
+                          </span>
+                          {type === 'voting_kicked_civilian' && eliminatedVotePercent != null && (
+                            <span className={styles.votingVotePercent}>
+                              Набрал {eliminatedVotePercent}% голосов
+                            </span>
+                          )}
+                        </motion.div>
+                      )
                     )}
                   </motion.div>
 
@@ -546,35 +718,37 @@ export function SplashScreen({
                       )}
                     </motion.div>
                   ) : (
-                    <motion.h1
-                      className={`${styles.titleVictory} ${
-                        type === 'voting_kicked_civilian' ? styles.votingTitle : ''
-                      }`}
-                      initial={{ opacity: 0, x: -72 }}
-                      animate={{
-                        opacity: 1,
-                        x: 0,
-                        transition: {
-                          delay: victoryFirstWaveDelay,
-                          duration: VICTORY_FIRST_WAVE.titleDuration,
-                          ease: [0.22, 1, 0.36, 1],
-                        },
-                      }}
-                      exit={{ opacity: 0 }}
-                    >
-                      {type === 'voting_kicked_civilian' ? (
-                        <>
-                          <span className={styles.votingTitleDesktop}>{title}</span>
-                          <span className={styles.votingTitleMobile}>
-                            <span>БЫЛ ИЗГНАН</span>
-                            <br />
-                            <span>ГОЛОСОВАНИЕМ</span>
-                          </span>
-                        </>
-                      ) : (
-                        title
-                      )}
-                    </motion.h1>
+                    <>
+                      <motion.h1
+                        className={`${styles.titleVictory} ${
+                          type === 'voting_kicked_civilian' ? styles.votingTitle : ''
+                        }`}
+                        initial={{ opacity: 0, x: -72 }}
+                        animate={{
+                          opacity: 1,
+                          x: 0,
+                          transition: {
+                            delay: victoryFirstWaveDelay,
+                            duration: VICTORY_FIRST_WAVE.titleDuration,
+                            ease: [0.22, 1, 0.36, 1],
+                          },
+                        }}
+                        exit={{ opacity: 0 }}
+                      >
+                        {type === 'voting_kicked_civilian' ? (
+                          <>
+                            <span className={styles.votingTitleDesktop}>{title}</span>
+                            <span className={styles.votingTitleMobile}>
+                              <span>БЫЛ ИЗГНАН</span>
+                              <br />
+                              <span>ГОЛОСОВАНИЕМ</span>
+                            </span>
+                          </>
+                        ) : (
+                          title
+                        )}
+                      </motion.h1>
+                    </>
                   )}
                   {/* Нижний блок: у победных — Lottie, у "выгнали мирного"/"убийство" — просто пустой слот той же высоты */}
                   {isProfileType && (

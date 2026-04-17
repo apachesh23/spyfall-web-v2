@@ -453,6 +453,8 @@ export const MATCH_VOTING_COPY = {
   countdown: "ОСТАЛОСЬ...",
   /** Подпись на нижней полоске (subtitle) в фазе кандидатов на повторное. */
   revoteSubtitleLabel: "НА 2 РАУНД...",
+  /** Финальное голосование: без раскрытия точного числа оставшихся шпионов. */
+  finalSpiesStatusBanner: "Шпионы всё ещё среди нас. Но сколько?",
 } as const;
 
 export type VoteStripeVariant = "regular" | "final";

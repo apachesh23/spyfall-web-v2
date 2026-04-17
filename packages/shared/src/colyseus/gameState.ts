@@ -10,7 +10,7 @@ export class MatchPlayerState extends Schema {
   declare avatarId: number;
   declare isHost: boolean;
   declare isSpy: boolean;
-  /** Роль на локации (мирный); у шпиона пусто. */
+  /** Роль на локации при modeRole (и у шпионов — своя карточка роли, без раскрытия союзников). */
   declare roleAtLocation: string;
   /** Карточка шпиона (/locations/spyN.webp); у мирных пусто. */
   declare spyCardUrl: string;
@@ -18,6 +18,8 @@ export class MatchPlayerState extends Schema {
   declare eliminated: boolean;
   /** `voted` — изгнание голосованием; `killed` — устранение шпионом; пусто — ещё в игре. */
   declare deathReason: string;
+  /** Попытки угадать локацию этим шпионом (при ≥2 шпионах 0|1; в соло — 0, лимит в spyGuessAttemptsUsed). */
+  declare spyGuessUses: number;
 }
 defineTypes(MatchPlayerState, {
   id: "string",
@@ -29,6 +31,7 @@ defineTypes(MatchPlayerState, {
   spyCardUrl: "string",
   eliminated: "boolean",
   deathReason: "string",
+  spyGuessUses: "number",
 });
 
 /** Корень состояния SpyfallRoom — одна копия для game-server и web (join третьим аргументом). */
@@ -105,6 +108,9 @@ export class GameState extends Schema {
    */
   declare spyDiscussActionsUnlockAt: number;
 
+  declare initialSpyCount: number;
+  declare voteFinalSpiesRemaining: number;
+
   constructor() {
     super();
     this.players = new MapSchema<MatchPlayerState>();
@@ -143,6 +149,8 @@ export class GameState extends Schema {
     this.spyKillAttemptsUsed = 0;
     this.spyKillCooldownUntil = 0;
     this.spyDiscussActionsUnlockAt = 0;
+    this.initialSpyCount = 1;
+    this.voteFinalSpiesRemaining = 0;
   }
 }
 defineTypes(GameState, {
@@ -190,4 +198,6 @@ defineTypes(GameState, {
   spyKillAttemptsUsed: "number",
   spyKillCooldownUntil: "number",
   spyDiscussActionsUnlockAt: "number",
+  initialSpyCount: "number",
+  voteFinalSpiesRemaining: "number",
 });

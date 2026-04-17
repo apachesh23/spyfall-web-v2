@@ -77,6 +77,7 @@ export type MatchPlayerJson = {
   spyCardUrl: string;
   eliminated: boolean;
   deathReason: "" | "voted" | "killed";
+  spyGuessUses: number;
 };
 
 export type GameStateJson = {
@@ -124,6 +125,8 @@ export type GameStateJson = {
   spyKillAttemptsUsed: number;
   spyKillCooldownUntil: number;
   spyDiscussActionsUnlockAt: number;
+  initialSpyCount: number;
+  voteFinalSpiesRemaining: number;
 };
 
 function num(v: unknown): number {
@@ -182,6 +185,7 @@ function extractPlayer(p: Record<string, unknown> | null | undefined): MatchPlay
     spyCardUrl: strField(p, "spyCardUrl", "spy_card_url"),
     eliminated,
     deathReason,
+    spyGuessUses: num(p.spyGuessUses ?? p.spy_guess_uses),
   };
 }
 
@@ -303,6 +307,8 @@ function snapshotMatchState(room: Room): GameStateJson | null {
   let spyKillAttemptsUsed = 0;
   let spyKillCooldownUntil = 0;
   let spyDiscussActionsUnlockAt = 0;
+  let initialSpyCount = 1;
+  let voteFinalSpiesRemaining = 0;
 
   if (!matchEndsAt) matchEndsAt = num(loose._matchEndsAt);
   if (typeof loose._phase === "string" && loose._phase) phase = loose._phase;
@@ -385,6 +391,11 @@ function snapshotMatchState(room: Room): GameStateJson | null {
       spyDiscussActionsUnlockAt = num(
         j.spyDiscussActionsUnlockAt ?? j.spy_discuss_actions_unlock_at,
       );
+      initialSpyCount = Math.max(
+        1,
+        Math.min(3, num(j.initialSpyCount ?? j.initial_spy_count) || 1),
+      );
+      voteFinalSpiesRemaining = num(j.voteFinalSpiesRemaining ?? j.vote_final_spies_remaining);
     } catch {
       /* ignore */
     }
@@ -421,6 +432,11 @@ function snapshotMatchState(room: Room): GameStateJson | null {
       "spyDiscussActionsUnlockAt",
       spyDiscussActionsUnlockAt,
     );
+    initialSpyCount = Math.max(
+      1,
+      Math.min(3, pickNum("initialSpyCount", initialSpyCount) || 1),
+    );
+    voteFinalSpiesRemaining = pickNum("voteFinalSpiesRemaining", voteFinalSpiesRemaining);
 
     type SpyGuessBallotsRoot = {
       forEach?: (cb: (v: unknown, k: string) => void) => void;
@@ -496,6 +512,8 @@ function snapshotMatchState(room: Room): GameStateJson | null {
     spyKillAttemptsUsed,
     spyKillCooldownUntil,
     spyDiscussActionsUnlockAt,
+    initialSpyCount,
+    voteFinalSpiesRemaining,
   };
 }
 
@@ -1461,12 +1479,14 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     !!stateJson.spyGuessSpyId &&
     (spyGuessLegacyNoCinematic || spyGuessExitFallStarted || spyGuessIntroDoneInStorage);
 
+  /** Сколько шпионов в ростере (в т.ч. выбывшие) — надёжнее `initialSpyCount` из JSON при рассинхроне версий. */
+  const rosterSpyCountForGuessUi = playerRows.filter((p) => p.isSpy).length;
+  /** Стартовый общий гейт (в т.ч. 2+ шпионов) + в соло перезарядка между 1-й и 2-й попыткой. */
   const spyGuessCooldownRemainSec =
     stateJson != null &&
     isDiscussion &&
     stateJson.spyGuessCooldownUntil > now &&
-    stateJson.spyGuessAttemptsUsed > 0 &&
-    stateJson.spyGuessAttemptsUsed < 2
+    (rosterSpyCountForGuessUi >= 2 || stateJson.spyGuessAttemptsUsed < 2)
       ? Math.max(0, Math.ceil((stateJson.spyGuessCooldownUntil - now) / 1000))
       : 0;
 
@@ -1480,16 +1500,47 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
       : 0;
 
   const spyBlockLive = useMemo(() => {
-    if (!stateJson || !isDiscussion || me?.isSpy !== true || meEliminated || isEndedPhase) return null;
+    if (!stateJson || !isDiscussion || me?.isSpy !== true || isEndedPhase) return null;
+    if (meEliminated) {
+      return {
+        modeHiddenThreat: false,
+        actionStatusLine: "ВЫ ВЫБЫЛИ",
+        buttonsMuted: true,
+        guessDisabled: true,
+        guessUsed: false,
+        onGuessClick: undefined,
+        subtitle: "Действия недоступны",
+        killDisabled: true,
+        killUsed: true,
+        onKillClick: undefined,
+      };
+    }
     const attempts = stateJson.spyGuessAttemptsUsed;
     const kills = stateJson.spyKillAttemptsUsed;
     const modeHiddenThreat = stateJson.modeHiddenThreat === true;
+    const chaosMode = lobbyModes?.mode_spy_chaos === true;
     const voteOpen = stateJson.spyGuessVoteEndsAt > 0;
     const killSplash = stateJson.matchSplashType === "spy_kill";
     const cooldown = spyGuessCooldownRemainSec > 0;
     const lowPlayers = alivePlayerCount < 4;
     const combinedExhausted = modeHiddenThreat && attempts + kills >= 2;
-    const guessMaxed = attempts >= 2 || combinedExhausted;
+    const initialSpies = Math.min(
+      3,
+      Math.max(1, Math.max(stateJson.initialSpyCount, rosterSpyCountForGuessUi)),
+    );
+    const multiSpyTeam = initialSpies >= 2;
+    const mySpyUses = me?.spyGuessUses ?? 0;
+    const teamGuessUses = playerRows
+      .filter((p) => p.isSpy)
+      .reduce((acc, p) => acc + (p.spyGuessUses ?? 0), 0);
+
+    const personalActionCap = chaosMode || multiSpyTeam ? 1 : 2;
+    const personalActionsUsed = modeHiddenThreat
+      ? attempts + kills
+      : multiSpyTeam || chaosMode
+        ? mySpyUses
+        : attempts;
+    const guessMaxed = personalActionsUsed >= personalActionCap || combinedExhausted;
     const roundGateActive =
       modeHiddenThreat && now < stateJson.spyDiscussActionsUnlockAt && attempts + kills < 2;
 
@@ -1497,7 +1548,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
       status !== "ok" ||
       voteOpen ||
       cooldown ||
-      attempts >= 2 ||
+      guessMaxed ||
       (modeHiddenThreat && combinedExhausted && !voteOpen) ||
       (modeHiddenThreat && lowPlayers) ||
       (modeHiddenThreat && killSplash) ||
@@ -1519,14 +1570,12 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     const killUsedVisual = kills >= 2 || combinedExhausted;
     const canKill = modeHiddenThreat && !killUsedVisual && !killDisabled;
 
-    const usedActions = modeHiddenThreat ? attempts + kills : attempts;
-
     const unlockCandidates: number[] = [];
     if (modeHiddenThreat && attempts + kills < 2) {
       const u = stateJson.spyDiscussActionsUnlockAt;
       if (u > now) unlockCandidates.push(u);
     }
-    if (stateJson.spyGuessCooldownUntil > now && attempts > 0 && attempts < 2) {
+    if (spyGuessCooldownRemainSec > 0) {
       unlockCandidates.push(stateJson.spyGuessCooldownUntil);
     }
     if (stateJson.spyKillCooldownUntil > now && kills < 2 && attempts + kills < 2) {
@@ -1537,9 +1586,8 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
       nextUnlockAt > now ? Math.max(0, Math.ceil((nextUnlockAt - now) / 1000)) : 0;
 
     const exhaustedHidden = modeHiddenThreat && attempts + kills >= 2;
-    const exhaustedPlain = !modeHiddenThreat && attempts >= 2;
-
-    let actionStatusLine = "";
+    const exhaustedPersonal = personalActionsUsed >= personalActionCap;
+    let actionStatusLine = `Действия: ${Math.min(personalActionsUsed, personalActionCap)}/${personalActionCap}`;
     if (killSplash) {
       actionStatusLine = "";
     } else if (voteOpen) {
@@ -1550,32 +1598,41 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
       actionStatusLine = "Нужно минимум 4 игрока в игре.";
     } else if (
       nextUnlockRemainSec > 0 &&
-      !voteOpen &&
       !exhaustedHidden &&
-      !exhaustedPlain &&
+      !exhaustedPersonal &&
       !(modeHiddenThreat && lowPlayers)
     ) {
       actionStatusLine = `Будет доступно через ${formatEarlyLock(nextUnlockRemainSec)}`;
-    } else {
-      actionStatusLine = `Использовано действий ${usedActions}/2`;
     }
 
     const buttonsMuted =
       voteOpen ||
       killSplash ||
       exhaustedHidden ||
-      exhaustedPlain ||
+      exhaustedPersonal ||
       (modeHiddenThreat && lowPlayers) ||
       nextUnlockRemainSec > 0;
 
+    const title = chaosMode
+      ? "ДЕЙСТВИЕ ШПИОНА · Команда: СКРЫТО"
+      : multiSpyTeam
+        ? `ДЕЙСТВИЕ ШПИОНА · Команда: ${initialSpies}`
+        : "ДЕЙСТВИЕ ШПИОНА";
+    const subtitle = chaosMode
+      ? "Команда неизвестна. 1 действие"
+      : multiSpyTeam
+        ? `На команду: ${initialSpies} действия`
+        : "2 действия за игру. Перезарядка 3 мин";
+
     return {
+      title,
       modeHiddenThreat,
       actionStatusLine,
       buttonsMuted,
       guessDisabled,
       guessUsed: guessMaxed,
       onGuessClick: () => setSpyGuessModalOpen(true),
-      subtitle: "Только 2 действия за игру. Перезарядка — 3 мин",
+      subtitle,
       killDisabled,
       killUsed: kills >= 2 || combinedExhausted,
       onKillClick: () => setSpyKillModalOpen(true),
@@ -1584,19 +1641,24 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     stateJson,
     isDiscussion,
     me?.isSpy,
+    me?.spyGuessUses,
     meEliminated,
     isEndedPhase,
     status,
     spyGuessCooldownRemainSec,
     spyKillCooldownRemainSec,
     alivePlayerCount,
+    playerRows,
+    lobbyModes?.mode_spy_chaos,
     now,
   ]);
 
   const spyGuessEligibleIds = useMemo(() => {
     if (!stateJson?.spyGuessSpyId) return [];
     const sid = stateJson.spyGuessSpyId;
-    return playerRows.filter((p) => !p.eliminated && p.id !== sid).map((p) => p.id);
+    return playerRows
+      .filter((p) => !p.eliminated && !p.isSpy && p.id !== sid)
+      .map((p) => p.id);
   }, [stateJson?.spyGuessSpyId, playerRows]);
 
   const submitSpyGuess = useCallback((text: string) => {
@@ -1647,6 +1709,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     revoteB: string;
     stubEliminatedId: string;
     voteIsFinal: boolean;
+    voteFinalSpiesRemaining: number;
     playersById: Record<string, MatchVotingOverlayPlayer>;
     voteBallots: Record<string, string>;
     eliminatedPlayerIds: Set<string>;
@@ -1669,12 +1732,19 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     [hostDiscussionPause, matchPauseFromRoom.remainingSec],
   );
 
+  const hostPauseDisabled =
+    isVotingPhase ||
+    Boolean(stateJson?.matchSplashType) ||
+    showSpyGuessVoteOverlay ||
+    showSpyGuessCinematic;
+
   const hostAside =
     isMatchHost && !isMobile ? (
       <MatchGameHostButtons
         layout="fixed"
         isPaused={hostDiscussionPause}
         pausingGame={pauseBusy}
+        pauseDisabled={hostPauseDisabled}
         onPause={pauseMatch}
         onResume={resumeMatch}
         onEndGame={() => void endMatch()}
@@ -1692,6 +1762,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
             layout="footer"
             isPaused={hostDiscussionPause}
             pausingGame={pauseBusy}
+            pauseDisabled={hostPauseDisabled}
             onPause={pauseMatch}
             onResume={resumeMatch}
             onEndGame={() => void endMatch()}
@@ -1818,6 +1889,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
       revoteB: stateJson.revoteB,
       stubEliminatedId: stateJson.stubEliminatedId,
       voteIsFinal: stateJson.voteIsFinal,
+      voteFinalSpiesRemaining: stateJson.voteFinalSpiesRemaining,
       playersById: { ...votingPlayersById },
       voteBallots: { ...stateJson.voteBallots },
       eliminatedPlayerIds: new Set(eliminatedPlayerIds),
@@ -1849,8 +1921,10 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
           matchSplashEliminatedId={stateJson.matchSplashEliminatedId}
           matchSplashVotePercent={stateJson.matchSplashVotePercent}
           matchSplashEliminationGameOver={stateJson.matchSplashEliminationGameOver}
+          guessedSpyId={stateJson.spyGuessSpyId || stateJson.matchSplashEliminatedId}
           players={stateJson.players}
           clockSkewMs={clockSkewMs}
+          initialSpyCount={stateJson.initialSpyCount}
           isMatchHost={isMatchHost}
           onVictoryHostEndGame={endMatch}
           victoryEndGameBusy={endMatchBusy}

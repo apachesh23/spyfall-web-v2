@@ -55,6 +55,7 @@ function HeadlineStripsGroup({
   return (
     <div
       className={stripStyles.mediaDecoRotateWrap}
+      data-voting-headline-strips
       aria-hidden
       style={{
         top: `${decoConfig.compositionPositionYPx}px`,

@@ -188,6 +188,17 @@
   font-weight: 500;
 }
 
+.civilianVictoryTagline {
+  margin: 0;
+  max-width: 22rem;
+  font-family: var(--font-tektur), Tektur, monospace;
+  font-size: clamp(0.95rem, 2.2vw, 1.15rem);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.92);
+}
+
 /* Тайтл «Был изгнан голосованием» в две строки, можно сделать крупнее на мобилке */
 .votingTitle {
   line-height: 1.1;
@@ -237,12 +248,45 @@
 }
 
 /* Аватар с ником: поднять выше — меняй значение (например -8px, -16px) */
+.victorySpyUnderBall {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 .victorySpyBlock {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.25rem;
   margin-top: -110px; /* чуть выше под шарик */
+}
+
+/* Фаза 2: несколько шпионов — тот же размер карточки, разлёт влево/вправо */
+.spyVictoryScatterStage {
+  position: relative;
+  width: min(100%, 420px);
+  min-height: 168px;
+  margin-top: -110px;
+}
+
+.spyVictoryScatterItem {
+  position: absolute;
+  left: 50%;
+  top: 20px; /* визуальное выравнивание с финальной точкой фазы fly-in */
+  margin-left: -40px; /* половина victorySpyAvatarWrap 80px — центр под аватаром */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 80px;
+}
+
+/* Карточка как victorySpyBlock, но без второго сдвига вверх (его даёт stage) */
+.spyVictoryScatterItem.victorySpyBlock {
+  margin-top: 0;
 }
 
 /* Обёртка под круглый аватар 80×80 */
@@ -272,11 +316,35 @@
 
 .victorySpyLabel {
   font-family: var(--font-tektur), Tektur, monospace;
-  font-size: 1.25rem;
+  font-size: 0.7rem;
   font-weight: 400;
   text-transform: uppercase;
   letter-spacing: 2px;
   font-style: normal;
+}
+
+.victorySpyLabel.spyVictoryScatterSpyLabel {
+  font-size: 0.7rem;
+  letter-spacing: 1.25px;
+}
+
+.votingEliminatedRoleLabel {
+  font-size: 0.82rem;
+}
+
+.spyVictoryToneAccent {
+  color: #f2f29d;
+}
+
+.spyVictoryToneGuessed {
+  color: #f7c431;
+  text-shadow:
+    0 0 8px rgba(247, 196, 49, 0.55),
+    0 0 14px rgba(247, 196, 49, 0.28);
+}
+
+.spyVictoryToneRevealed {
+  color: #ff6d6d;
 }
 
 .votingVotePercent {

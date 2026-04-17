@@ -11,6 +11,7 @@ import styles from "./MatchGameHostButtons.module.css";
 export type MatchGameHostButtonsProps = {
   isPaused: boolean;
   pausingGame: boolean;
+  pauseDisabled?: boolean;
   onPause: () => void;
   onResume: () => void;
   onEndGame: () => void;
@@ -21,6 +22,7 @@ export type MatchGameHostButtonsProps = {
 export function MatchGameHostButtons({
   isPaused,
   pausingGame,
+  pauseDisabled = false,
   onPause,
   onResume,
   onEndGame,
@@ -47,8 +49,8 @@ export function MatchGameHostButtons({
             else onPause();
           }}
           onMouseEnter={() => playUI("hover")}
-          disabled={pausingGame}
-          aria-label={isPaused ? "Продолжить" : "Пауза"}
+          disabled={pausingGame || pauseDisabled}
+          aria-label={isPaused ? "Продолжить" : pauseDisabled ? "Пауза недоступна" : "Пауза"}
           whileTap={{ scale: 0.94 }}
           transition={{ duration: 0.08 }}
         >

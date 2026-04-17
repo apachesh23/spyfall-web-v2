@@ -53,6 +53,8 @@ const SPY_GUESS_AUTO_WIN_PHASE_MS = 10_000;
  */
 const SPY_GUESS_COOLDOWN_MS =
   process.env.NODE_ENV === "production" ? 3 * 60 * 1000 : 10_000;
+/** Первое «угадать локацию» у любой команды шпионов — тот же интервал, что перезарядка между попытками в соло (dev 10 с / prod 3 мин). */
+const SPY_FIRST_GUESS_UNLOCK_MS = SPY_GUESS_COOLDOWN_MS;
 const SPY_GUESS_VOTE_MS = 60 * 1000;
 
 const SPY_KILL_FIRST_UNLOCK_MS =
@@ -84,6 +86,13 @@ function earlyMajorityRequired(n: number): number {
 
 export class SpyfallRoom extends Room<SpyfallGameState> {
   private clientToPlayerId = new Map<string, string>();
+  /**
+   * Финал по таймеру при ≥2 живых шпионах: любое изгнание мирного = победа шпионов;
+   * после изгнания шпиона при оставшихся шпионах — ещё одно финальное голосование подряд.
+   */
+  private strictFinalSpyHunt = false;
+  /** После сплэша изгнания шпиона в финале — сразу следующий раунд голосования. */
+  private pendingChainFinalVote = false;
   /** Момент постановки на паузу (только в памяти процесса). */
   private pauseStartedAt: number | null = null;
   /** Последняя сессия голосования была запущена досрочно — влияет на cooldown. */
@@ -162,7 +171,20 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
       p.spyCardUrl = typeof row.spyCardUrl === "string" ? row.spyCardUrl : "";
       p.eliminated = false;
       p.deathReason = "";
+      p.spyGuessUses = 0;
       this.state.players.set(id, p);
+    }
+
+    let rosterSpyCount = 0;
+    this.state.players.forEach((pl) => {
+      if (pl.isSpy) rosterSpyCount += 1;
+    });
+    this.state.initialSpyCount = Math.max(1, Math.min(3, rosterSpyCount));
+    this.state.voteFinalSpiesRemaining = 0;
+
+    {
+      const firstGuessAt = createdAt + SPY_FIRST_GUESS_UNLOCK_MS;
+      this.state.spyGuessCooldownUntil = Math.max(firstGuessAt, this.state.spyDiscussActionsUnlockAt);
     }
 
     this.autoDispose = true;
@@ -276,16 +298,25 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
 
       const me = this.state.players.get(playerId);
       if (!me?.isSpy || me.eliminated) return;
-      if (this.state.spyGuessAttemptsUsed >= SPY_GUESS_MAX_ATTEMPTS) return;
-      if (
-        this.state.modeHiddenThreat &&
-        this.state.spyGuessAttemptsUsed + this.state.spyKillAttemptsUsed >= SPY_GUESS_MAX_ATTEMPTS
-      ) {
-        return;
+
+      const teamSpies = Math.max(1, Math.min(3, this.state.initialSpyCount));
+      const multiSpyTeam = teamSpies >= 2;
+
+      if (!multiSpyTeam) {
+        if (this.state.spyGuessAttemptsUsed >= SPY_GUESS_MAX_ATTEMPTS) return;
+        if (
+          this.state.modeHiddenThreat &&
+          this.state.spyGuessAttemptsUsed + this.state.spyKillAttemptsUsed >= SPY_GUESS_MAX_ATTEMPTS
+        ) {
+          return;
+        }
+      } else {
+        if (me.spyGuessUses >= 1) return;
       }
 
       const now = Date.now();
       if (this.state.modeHiddenThreat && now < this.state.spyDiscussActionsUnlockAt) return;
+      /** Стартовый общий гейт + в соло перезарядка между попытками (`resolveSpyGuessVote` обнуляет у мульти после промаха). */
       if (now < this.state.spyGuessCooldownUntil) return;
 
       const raw = typeof payload?.text === "string" ? payload.text : "";
@@ -335,7 +366,10 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
       const raw = typeof payload?.vote === "string" ? payload.vote.trim().toLowerCase() : "";
       if (raw !== "yes" && raw !== "no") return;
 
-      const eligible = this.getAlivePlayerIds().filter((id) => id !== spyId);
+      const eligible = this.getAlivePlayerIds().filter((id) => {
+        if (id === spyId) return false;
+        return !this.state.players.get(id)?.isSpy;
+      });
       if (!eligible.includes(playerId)) return;
 
       this.state.spyGuessBallots.set(playerId, raw);
@@ -397,13 +431,12 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
       existing.nickname = nicknameRaw.slice(0, 48);
     }
 
-    const isSpy = existing.isSpy;
     client.send(WS_SERVER_MESSAGE.matchAssignment, {
       /** Тему видят и шпион, и мирные — подсказка для беседы без знания локации. */
       themeText: this.state.themeText,
       modeTheme: this.state.modeTheme,
-      modeRole: isSpy ? false : this.state.modeRole,
-      roleAtLocation: isSpy ? "" : existing.roleAtLocation,
+      modeRole: this.state.modeRole,
+      roleAtLocation: this.state.modeRole ? existing.roleAtLocation : "",
     });
 
     console.log(
@@ -437,6 +470,14 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
     let n = 0;
     this.state.players.forEach((p) => {
       if (!p.eliminated) n++;
+    });
+    return n;
+  }
+
+  private countAliveSpies(): number {
+    let n = 0;
+    this.state.players.forEach((p) => {
+      if (!p.eliminated && p.isSpy) n++;
     });
     return n;
   }
@@ -486,6 +527,31 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
     this.state.phase = "voting";
     this.state.voteStage = "collect1";
     this.state.voteEndsAt = now + this.state.votingDurationSec * 1000 + VOTE_COUNTDOWN_ZERO_PAD_MS;
+
+    this.state.voteFinalSpiesRemaining = fromEarly ? 0 : this.countAliveSpies();
+    if (!fromEarly && this.countAliveSpies() >= 2) {
+      this.strictFinalSpyHunt = true;
+    } else if (!fromEarly) {
+      this.strictFinalSpyHunt = false;
+    }
+  }
+
+  /** Второе и далее финальное голосование подряд (несколько шпионов в конце). */
+  private beginNextFinalVotingRound() {
+    const now = Date.now();
+    this.pendingVictoryAfterEliminationSplash = null;
+    this.clearMatchSplashFields();
+
+    this.state.stubEliminatedId = "";
+    this.state.voteBallots.clear();
+    this.state.revoteA = "";
+    this.state.revoteB = "";
+    this.state.voteTransitionEndsAt = 0;
+    this.state.voteStage = "collect1";
+    this.state.phase = "voting";
+    this.state.voteIsFinal = true;
+    this.state.voteFinalSpiesRemaining = this.countAliveSpies();
+    this.state.voteEndsAt = now + this.state.votingDurationSec * 1000 + VOTE_COUNTDOWN_ZERO_PAD_MS;
   }
 
   private returnToDiscussion() {
@@ -510,6 +576,9 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
     }
     this.voteTriggeredByEarly = false;
     this.state.voteIsFinal = false;
+    this.state.voteFinalSpiesRemaining = 0;
+    this.strictFinalSpyHunt = false;
+    this.pendingChainFinalVote = false;
 
     this.state.matchEndsAt = now + Math.max(0, savedDiscussionMs);
     if (this.state.matchEndsAt <= now) {
@@ -520,7 +589,8 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
   /** Победитель после изгнания по числу живых шпионов / мирных. */
   private victoryAfterEliminationCounts(spies: number, civs: number): "game_over_civilians_win" | "game_over_spy_win_voting" {
     if (spies === 0) return "game_over_civilians_win";
-    if (spies >= civs) return "game_over_spy_win_voting";
+    if (this.state.initialSpyCount <= 1 && spies >= civs) return "game_over_spy_win_voting";
+    if (civs === 0) return "game_over_spy_win_voting";
     return "game_over_civilians_win";
   }
 
@@ -565,18 +635,34 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
 
     let gameOver = false;
     let victory: "game_over_civilians_win" | "game_over_spy_win_voting" | null = null;
-    if (tooFewToContinue) {
+    const earlyVoteSpyEliminatedWithSpiesRemaining =
+      !this.state.voteIsFinal && target?.isSpy === true && spies >= 1;
+
+    if (earlyVoteSpyEliminatedWithSpiesRemaining) {
+      gameOver = false;
+      victory = null;
+    } else if (this.state.voteIsFinal && this.strictFinalSpyHunt && target && !target.isSpy) {
+      gameOver = true;
+      victory = "game_over_spy_win_voting";
+    } else if (tooFewToContinue) {
       gameOver = true;
       victory = this.victoryAfterEliminationCounts(spies, civs);
     } else if (spies === 0) {
       gameOver = true;
       victory = "game_over_civilians_win";
-    } else if (spies >= civs) {
+    } else if (this.state.initialSpyCount <= 1 && spies >= civs) {
+      gameOver = true;
+      victory = "game_over_spy_win_voting";
+    } else if (civs === 0) {
       gameOver = true;
       victory = "game_over_spy_win_voting";
     }
 
     this.pendingVictoryAfterEliminationSplash = gameOver ? victory : null;
+
+    if (!gameOver && this.state.voteIsFinal && target?.isSpy === true && spies >= 1) {
+      this.pendingChainFinalVote = true;
+    }
 
     const t = Date.now() + ELIMINATION_SPLASH_REVEAL_PAD_MS;
     const end = t + ELIMINATION_SPLASH_MS + VOTE_COUNTDOWN_ZERO_PAD_MS;
@@ -626,7 +712,10 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
     } else if (spies === 0) {
       gameOver = true;
       victory = "game_over_civilians_win";
-    } else if (spies >= civs) {
+    } else if (this.state.initialSpyCount <= 1 && spies >= civs) {
+      gameOver = true;
+      victory = "game_over_spy_win_voting";
+    } else if (civs === 0) {
       gameOver = true;
       victory = "game_over_spy_win_voting";
     }
@@ -669,6 +758,9 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
       this.state.earlyVoteAck.clear();
       this.voteTriggeredByEarly = false;
       this.state.voteIsFinal = false;
+      this.state.voteFinalSpiesRemaining = 0;
+      this.strictFinalSpyHunt = false;
+      this.pendingChainFinalVote = false;
 
       const t = Date.now();
       this.state.matchSplashType = pending;
@@ -697,11 +789,20 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
       this.state.earlyVoteAck.clear();
       this.voteTriggeredByEarly = false;
       this.state.voteIsFinal = false;
+      this.state.voteFinalSpiesRemaining = 0;
+      this.strictFinalSpyHunt = false;
+      this.pendingChainFinalVote = false;
 
       const t = Date.now();
       this.state.matchSplashType = pending;
       this.state.matchSplashAt = t;
       this.state.matchSplashEndsAt = 0;
+      return;
+    }
+
+    if (this.pendingChainFinalVote) {
+      this.pendingChainFinalVote = false;
+      this.beginNextFinalVotingRound();
       return;
     }
 
@@ -805,6 +906,9 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
   private endFinalVotingNoOutcomeAsSpyWin() {
     this.pendingVictoryAfterEliminationSplash = null;
     this.clearMatchSplashFields();
+    this.strictFinalSpyHunt = false;
+    this.pendingChainFinalVote = false;
+    this.state.voteFinalSpiesRemaining = 0;
 
     this.state.phase = "ended";
     this.state.gameEndReason = "spies_win_voting";
@@ -909,7 +1013,10 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
       if (now >= ends) this.endGameSpyWinGuess();
       return;
     }
-    const eligible = this.getAlivePlayerIds().filter((id) => id !== spyId);
+    const eligible = this.getAlivePlayerIds().filter((id) => {
+      if (id === spyId) return false;
+      return !this.state.players.get(id)?.isSpy;
+    });
     const allVoted =
       eligible.length > 0 && eligible.every((id) => this.state.spyGuessBallots.has(id));
     if (!allVoted && now < ends) return;
@@ -927,7 +1034,12 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
 
   private resolveSpyGuessVote(now: number) {
     const spyId = this.state.spyGuessSpyId;
-    const eligible = spyId ? this.getAlivePlayerIds().filter((id) => id !== spyId) : [];
+    const eligible = spyId
+      ? this.getAlivePlayerIds().filter((id) => {
+          if (id === spyId) return false;
+          return !this.state.players.get(id)?.isSpy;
+        })
+      : [];
     let yes = 0;
     let no = 0;
     for (const id of eligible) {
@@ -944,18 +1056,30 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
       return;
     }
 
-    this.state.spyGuessAttemptsUsed += 1;
-    if (this.state.spyGuessAttemptsUsed < SPY_GUESS_MAX_ATTEMPTS) {
-      this.state.spyGuessCooldownUntil = now + SPY_GUESS_COOLDOWN_MS;
+    const teamSpies = Math.max(1, Math.min(3, this.state.initialSpyCount));
+    const multiSpyTeam = teamSpies >= 2;
+    const guesser = spyId ? this.state.players.get(spyId) : undefined;
+    if (multiSpyTeam && guesser) {
+      guesser.spyGuessUses += 1;
+      this.state.spyGuessCooldownUntil = 0;
+    } else {
+      this.state.spyGuessAttemptsUsed += 1;
+      if (this.state.spyGuessAttemptsUsed < SPY_GUESS_MAX_ATTEMPTS) {
+        this.state.spyGuessCooldownUntil = now + SPY_GUESS_COOLDOWN_MS;
+      }
     }
 
     this.reanchorMatchEndsAfterSpyGuess(now);
   }
 
   private endGameSpyWinGuess() {
+    const guessedSpyId = this.state.spyGuessSpyId;
     this.pendingVictoryAfterEliminationSplash = null;
     this.clearMatchSplashFields();
     this.clearSpyGuessVoteFields();
+    this.strictFinalSpyHunt = false;
+    this.pendingChainFinalVote = false;
+    this.state.voteFinalSpiesRemaining = 0;
 
     this.state.phase = "ended";
     this.state.gameEndReason = "spy_win_guess";
@@ -975,5 +1099,6 @@ export class SpyfallRoom extends Room<SpyfallGameState> {
     this.state.matchSplashType = "game_over_spy_win";
     this.state.matchSplashAt = t;
     this.state.matchSplashEndsAt = 0;
+    this.state.matchSplashEliminatedId = guessedSpyId;
   }
 }

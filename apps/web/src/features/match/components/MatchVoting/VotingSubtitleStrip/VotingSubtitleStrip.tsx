@@ -57,6 +57,7 @@ export function VotingSubtitleStrip({
   return (
     <div
       className={`${stripStyles.mediaDecoRotateWrap} ${stripStyles.mediaDecoRotateWrapHud}`}
+      data-voting-subtitle-strip
       style={hudCompositionWrapStyle(decoConfig)}
     >
       <div

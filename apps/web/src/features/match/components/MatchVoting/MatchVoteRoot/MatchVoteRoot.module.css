@@ -232,8 +232,27 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: clamp(12px, 4vh, 24px) clamp(12px, 2vw, 20px);
+  padding-left: clamp(12px, 2vw, 20px);
+  padding-right: clamp(12px, 2vw, 20px);
+  /* Фиксированный safe-area между верхними/нижними полосами.
+     На телефоне оставляем умеренные отступы, чтобы список голосования не "съедался". */
+  padding-top: clamp(132px, 21vh, 208px);
+  padding-bottom: clamp(124px, 20vh, 196px);
   overflow: hidden;
+}
+
+@media (max-width: 1270px) {
+  .center {
+    padding-top: clamp(108px, 17vh, 170px);
+    padding-bottom: clamp(108px, 16vh, 164px);
+  }
+}
+
+@media (max-width: 690px) {
+  .center {
+    padding-top: clamp(102px, 16vh, 148px);
+    padding-bottom: clamp(102px, 15vh, 150px);
+  }
 }
 
 /* Обёртка стека заголовков фазы «не состоялось». */

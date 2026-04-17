@@ -9,6 +9,7 @@ type SplashLayerPlayer = {
   nickname: string;
   avatarId: number;
   isSpy: boolean;
+  eliminated?: boolean;
 };
 
 /** Типы сплэшей Colyseus — общий список для слоя и для `syncPlayPageMusicForState` (фон во время сплэша). */
@@ -35,8 +36,11 @@ export type MatchColyseusSplashLayerProps = {
   matchSplashEliminatedId: string;
   matchSplashVotePercent: number;
   matchSplashEliminationGameOver: boolean;
+  guessedSpyId?: string;
   players: Record<string, SplashLayerPlayer>;
   clockSkewMs: number;
+  /** Из state комнаты; для победы мирных — подпись при 2–3 шпионах в игре. */
+  initialSpyCount?: number;
   isMatchHost?: boolean;
   onVictoryHostEndGame?: () => void;
   victoryEndGameBusy?: boolean;
@@ -53,8 +57,10 @@ export function MatchColyseusSplashLayer({
   matchSplashEliminatedId,
   matchSplashVotePercent,
   matchSplashEliminationGameOver,
+  guessedSpyId,
   players,
   clockSkewMs,
+  initialSpyCount,
   isMatchHost = false,
   onVictoryHostEndGame,
   victoryEndGameBusy = false,
@@ -67,6 +73,8 @@ export function MatchColyseusSplashLayer({
     id: p.id,
     nickname: p.nickname,
     avatar_id: p.avatarId as AvatarId,
+    is_spy: p.isSpy,
+    eliminated: p.eliminated === true,
   }));
   const spyIds = Object.values(players)
     .filter((p) => p.isSpy)
@@ -108,6 +116,7 @@ export function MatchColyseusSplashLayer({
           }
           players={playerList}
           spyIds={spyIds}
+          guessedSpyId={guessedSpyId}
           eliminatedPlayer={
             eliminated
               ? {
@@ -126,6 +135,7 @@ export function MatchColyseusSplashLayer({
               : undefined
           }
           victoryEndGameBusy={victoryEndGameBusy}
+          initialSpyCount={initialSpyCount}
         />
       </motion.div>
     </AnimatePresence>

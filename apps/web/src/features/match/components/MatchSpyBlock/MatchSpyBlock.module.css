@@ -119,6 +119,26 @@
   width: auto !important;
 }
 
+/* Десктоп: одна кнопка (без «Устранить») — ширина как у пары кнопок в ряд */
+@media (min-width: 1271px) {
+  .buttonsSoloGuessDesktopWide {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(136px, 1fr));
+    gap: 8px;
+    max-width: 100%;
+    justify-items: stretch;
+  }
+
+  /* :only-child — и активная (.guessButton), и приглушённая (.buttonGlass) без .guessButton */
+  .buttonsSoloGuessDesktopWide > .button:only-child {
+    grid-column: 1 / -1;
+    width: 100% !important;
+    max-width: none !important;
+    flex: none !important;
+    box-sizing: border-box !important;
+  }
+}
+
 .buttonTitleOnly {
   display: block;
   font-size: 13px;

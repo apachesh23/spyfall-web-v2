@@ -29,7 +29,7 @@ export const DEATH_LOTTIES: string[] = [
 
 export const SPLASH_CONTENT: Record<SplashType, { title: string; subtitle?: string }> = {
   game_over_spy_win: { title: 'ШПИОН УГАДАЛ ЛОКАЦИЮ', subtitle: '' },
-  game_over_spy_win_voting: { title: 'ШПИОН ПОБЕДИЛ', subtitle: '' },
+  game_over_spy_win_voting: { title: 'ШПИОНЫ ПОБЕДИЛИ', subtitle: '' },
   game_over_civilians_win: { title: 'АГЕНТЫ ПОБЕДИЛИ', subtitle: '' },
   spy_kill: { title: 'УБИЙСТВО', subtitle: '' },
   voting_kicked_civilian: { title: 'БЫЛ ИЗГНАН ГОЛОСОВАНИЕМ', subtitle: '' },

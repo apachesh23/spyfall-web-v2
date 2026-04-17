@@ -7,6 +7,7 @@ import styles from "./MatchSpyBlock.module.css";
 
 export type MatchSpyBlockProps = {
   className?: string;
+  title?: string;
   /** Только визуал (например для правил): без кликов */
   previewMode?: boolean;
   /** Режим «Скрытая угроза»: вторая кнопка «Устранить» */
@@ -24,10 +25,12 @@ export type MatchSpyBlockProps = {
   onKillClick?: () => void;
 };
 
-const DEFAULT_SUBTITLE = "Только 2 действия за игру. Перезарядка — 3 мин";
+const DEFAULT_TITLE = "ДЕЙСТВИЕ ШПИОНА";
+const DEFAULT_SUBTITLE = "2 действия за игру. Перезарядка 3 мин";
 
 export function MatchSpyBlock({
   className = "",
+  title = DEFAULT_TITLE,
   previewMode = false,
   modeHiddenThreat = false,
   subtitle,
@@ -74,13 +77,17 @@ export function MatchSpyBlock({
           />
         </div>
         <div className={styles.textBlock}>
-          <h2 className={styles.title}>ДЕЙСТВИЕ ШПИОНА</h2>
+          <h2 className={styles.title}>{title}</h2>
           <p className={styles.subtitle}>{resolvedSubtitle}</p>
         </div>
       </div>
 
       <div className={styles.right}>
-        <div className={styles.buttons}>
+        <div
+          className={`${styles.buttons} ${
+            !modeHiddenThreat ? styles.buttonsSoloGuessDesktopWide : ""
+          }`.trim()}
+        >
           <PrimaryButton
             type="button"
             withIcon={false}

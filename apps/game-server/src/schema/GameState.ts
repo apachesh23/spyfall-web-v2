@@ -14,6 +14,8 @@ export class MatchPlayerState extends Schema {
   declare spyCardUrl: string;
   declare eliminated: boolean;
   declare deathReason: string;
+  /** Попытки угадать локацию этим шпионом (только при ≥2 шпионах: 0 или 1; в соло — 0, лимит в state.spyGuessAttemptsUsed). */
+  declare spyGuessUses: number;
 }
 defineTypes(MatchPlayerState, {
   id: "string",
@@ -25,6 +27,7 @@ defineTypes(MatchPlayerState, {
   spyCardUrl: "string",
   eliminated: "boolean",
   deathReason: "string",
+  spyGuessUses: "number",
 });
 
 export class GameState extends Schema {
@@ -79,6 +82,11 @@ export class GameState extends Schema {
   declare spyKillCooldownUntil: number;
   declare spyDiscussActionsUnlockAt: number;
 
+  /** Сколько шпионов в ростере при старте (1–3) — лимиты действий и клиент. */
+  declare initialSpyCount: number;
+  /** При финальном голосовании: живых шпионов на старте текущего раунда (плашка «Осталось N…»). */
+  declare voteFinalSpiesRemaining: number;
+
   constructor() {
     super();
     this.players = new MapSchema<MatchPlayerState>();
@@ -117,6 +125,8 @@ export class GameState extends Schema {
     this.spyKillAttemptsUsed = 0;
     this.spyKillCooldownUntil = 0;
     this.spyDiscussActionsUnlockAt = 0;
+    this.initialSpyCount = 1;
+    this.voteFinalSpiesRemaining = 0;
   }
 }
 defineTypes(GameState, {
@@ -164,4 +174,6 @@ defineTypes(GameState, {
   spyKillAttemptsUsed: "number",
   spyKillCooldownUntil: "number",
   spyDiscussActionsUnlockAt: "number",
+  initialSpyCount: "number",
+  voteFinalSpiesRemaining: "number",
 });

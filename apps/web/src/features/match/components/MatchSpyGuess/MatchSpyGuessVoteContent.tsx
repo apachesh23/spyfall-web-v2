@@ -13,7 +13,6 @@ export type MatchSpyGuessVoteContentProps = {
   guessText: string;
   yesCount: number;
   noCount: number;
-  eligibleCount: number;
   myVote: "yes" | "no" | null;
   isSpy: boolean;
   /** Не шпион и не в списке голосующих (наблюдатель / выбывший). */
@@ -29,7 +28,6 @@ export function MatchSpyGuessVoteContent({
   guessText,
   yesCount,
   noCount,
-  eligibleCount,
   myVote,
   isSpy,
   spectator,
@@ -133,9 +131,7 @@ export function MatchSpyGuessVoteContent({
       ) : null}
 
       {!isSpy && !spectator && myVote !== null ? (
-        <p className={styles.voteDone}>
-          Голос учтён. Проголосовало: {total} / {eligibleCount}
-        </p>
+        <p className={styles.voteDone}>Голос учтён.</p>
       ) : null}
 
       {isSpy ? (

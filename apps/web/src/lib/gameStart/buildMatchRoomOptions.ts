@@ -76,10 +76,10 @@ export function buildMatchRoomOptions(
   }
 
   const n = list.length;
-  let spyCount = Math.max(1, Math.floor(settings.spy_count ?? 1));
+  let spyCount = 1;
   if (settings.mode_multi_spy) {
-    if (n >= 11) spyCount = Math.min(spyCount, 3);
-    else if (n >= 7) spyCount = Math.min(spyCount, 2);
+    if (n >= 5) spyCount = 3;
+    else if (n >= 4) spyCount = 2;
     else spyCount = 1;
     if (settings.mode_spy_chaos) {
       spyCount = Math.floor(Math.random() * spyCount) + 1;
@@ -87,6 +87,7 @@ export function buildMatchRoomOptions(
   } else {
     spyCount = 1;
   }
+  /** Автоподбор количества шпионов (для тестовых порогов), плюс clamp к n−1. */
   spyCount = Math.min(spyCount, Math.max(1, n - 1));
 
   const shuffledIds = shuffle(list.map((p) => p.id));
@@ -104,7 +105,7 @@ export function buildMatchRoomOptions(
     modeTheme && themes.length > 0 ? (pickRandom(themes) ?? "") : "";
 
   const shuffledRoles = shuffle(roles);
-  const civilians = list.filter((p) => !spySet.has(p.id));
+  const roleSlotOrder = shuffle(list.map((p) => p.id));
 
   const voteMin = typeof settings.vote_duration === "number" ? settings.vote_duration : 1;
   const votingDurationMs = Math.max(30_000, Math.min(600_000, Math.floor(voteMin * 60 * 1000)));
@@ -113,9 +114,9 @@ export function buildMatchRoomOptions(
     const avatarId = isValidAvatarId(p.avatar_id) ? p.avatar_id : DEFAULT_AVATAR_ID;
     const isSpy = spySet.has(p.id);
     let roleAtLocation = "";
-    if (!isSpy && modeRole && shuffledRoles.length > 0) {
-      const idx = civilians.indexOf(p);
-      roleAtLocation = shuffledRoles[idx % shuffledRoles.length] ?? "";
+    if (modeRole && shuffledRoles.length > 0) {
+      const slot = roleSlotOrder.indexOf(p.id);
+      roleAtLocation = shuffledRoles[slot % shuffledRoles.length] ?? "";
     }
     const spyCardUrl = isSpy ? SPY_CARDS[Math.floor(Math.random() * SPY_CARDS.length)]! : "";
     return {

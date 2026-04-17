@@ -40,6 +40,8 @@ export type MatchVotingOverlayProps = {
   clockSkewMs: number;
   /** Сессия по таймеру 00:00 — без пропуска, ассеты final. */
   voteIsFinal?: boolean;
+  /** Живых шпионов на старте раунда (сервер); плашка только при финале и remaining > 0. */
+  voteFinalSpiesRemaining?: number;
 };
 
 const SKIP = "skip";
@@ -76,6 +78,7 @@ export function MatchVotingOverlay({
   eliminatedPlayerIds,
   clockSkewMs,
   voteIsFinal = false,
+  voteFinalSpiesRemaining = 0,
 }: MatchVotingOverlayProps) {
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
 
@@ -147,6 +150,9 @@ export function MatchVotingOverlay({
 
   const voteStripeVariant: VoteStripeVariant = voteIsFinal ? "final" : "regular";
 
+  const finalSpiesBanner =
+    voteIsFinal && voteFinalSpiesRemaining > 0 ? MATCH_VOTING_COPY.finalSpiesStatusBanner : null;
+
   const content = (() => {
     if (centerPhase === "no_vote" || centerPhase === "revote_candidates") {
       return null;
@@ -196,6 +202,9 @@ export function MatchVotingOverlay({
       if (eliminatedPlayerIds.has(currentPlayerId)) {
         return (
           <div className={votingSplashStyles.votingCenter}>
+            {finalSpiesBanner ? (
+              <p className={votingSplashStyles.finalSpiesBanner}>{finalSpiesBanner}</p>
+            ) : null}
             {displayPlayers.length > 0 ? (
               <div className={votingSplashStyles.votingList}>
                 {displayPlayers.map((player) => {
@@ -241,6 +250,9 @@ export function MatchVotingOverlay({
 
       return (
         <div className={votingSplashStyles.votingCenter}>
+          {finalSpiesBanner ? (
+            <p className={votingSplashStyles.finalSpiesBanner}>{finalSpiesBanner}</p>
+          ) : null}
           <div className={votingSplashStyles.votingList}>
             {displayPlayers.map((player) => {
               const isSelf = player.id === currentPlayerId;

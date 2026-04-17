@@ -15,10 +15,10 @@ type LobbySettingsProps = {
   playerCount: number;
 };
 
-/** 1–6: multi недоступен (1 шпион). 7–10: 2 шпиона. 11+: 3 шпиона. */
+/** Тест-порог: <4 = 1 шпион, 4 = 2 шпиона, 5+ = 3 шпиона (только с multi). */
 function getEffectiveSpyCount(modeMultiSpy: boolean, playerCount: number): number {
-  if (!modeMultiSpy || playerCount < 7) return 1;
-  return playerCount >= 11 ? 3 : 2;
+  if (!modeMultiSpy || playerCount < 4) return 1;
+  return playerCount >= 5 ? 3 : 2;
 }
 
 const MODE_CARDS: Array<{
@@ -27,14 +27,12 @@ const MODE_CARDS: Array<{
   title: string;
   desc: string;
 }> = [
-  { key: 'mode_multi_spy', lottie: '/lottie/shadow_alliance.json', title: 'Сеть шпионов', desc: '7–10 игроков: 2 шпиона, 11+: 3 шпиона' },
+  { key: 'mode_multi_spy', lottie: '/lottie/shadow_alliance.json', title: 'Сеть шпионов', desc: 'ТЕСТ: 4 игрока — 2 шпиона, 5+ — 3 шпиона' },
   { key: 'mode_theme', lottie: '/lottie/theme-location.json', title: 'Тема локации', desc: 'Будет известна тема локации' },
   { key: 'mode_roles', lottie: '/lottie/role-location.json', title: 'Роли локации', desc: 'Добавить РП роли всем игрокам' },
   { key: 'mode_hidden_threat', lottie: '/lottie/hidden_threat.json', title: 'Скрытая угроза', desc: 'Шпион: «Назвать локацию» и «Устранить» — всего 2 действия за игру (5+ в лобби; в матче кнопки при ≥4 живых)' },
   { key: 'mode_spy_chaos', lottie: '/lottie/chaos.json', title: 'Шпионский хаос', desc: 'Случайное кол-во шпионов от 1 до макс. (только с Сетью шпионов)' },
 ];
-
-const HIDDEN_MODE_KEYS = new Set<keyof Settings>(['mode_multi_spy', 'mode_spy_chaos']);
 
 export function LobbySettings({ settings, onSettingsChange, isHost, playerCount }: LobbySettingsProps) {
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
@@ -51,7 +49,7 @@ export function LobbySettings({ settings, onSettingsChange, isHost, playerCount 
   );
   const lastUpdateFromParent = useRef(JSON.stringify(settings));
 
-  const multiSpyAvailable = playerCount >= 7;
+  const multiSpyAvailable = playerCount >= 4;
   const effectiveMultiSpy = localSettings.mode_multi_spy && multiSpyAvailable;
   const effectiveSpyCount = useMemo(
     () => getEffectiveSpyCount(localSettings.mode_multi_spy, playerCount),
@@ -93,7 +91,7 @@ export function LobbySettings({ settings, onSettingsChange, isHost, playerCount 
     if (key === 'mode_multi_spy') {
       if (value) {
         if (!multiSpyAvailable) return;
-        newSettings.spy_count = playerCount >= 11 ? 3 : 2;
+        newSettings.spy_count = playerCount >= 5 ? 3 : 2;
         newSettings.mode_hidden_threat = false;
       } else {
         newSettings.spy_count = 1;
@@ -125,6 +123,7 @@ export function LobbySettings({ settings, onSettingsChange, isHost, playerCount 
     }
     const num = Number(trimmed);
     if (Number.isNaN(num)) return;
+
     if (localSettings[key] === num) return;
     handleToggle(key, num);
   };
@@ -225,7 +224,7 @@ export function LobbySettings({ settings, onSettingsChange, isHost, playerCount 
         </div>
       </div>
 
-      {MODE_CARDS.filter(({ key }) => !HIDDEN_MODE_KEYS.has(key)).map(({ key, lottie, title, desc }) => {
+      {MODE_CARDS.map(({ key, lottie, title, desc }) => {
         const isDisabled =
           !isHost ||
           (key === 'mode_multi_spy' && !multiSpyAvailable) ||

@@ -188,10 +188,10 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
     let payload = settingsToSave ?? settings;
     if (!payload) return false;
 
-    const multiSpyOn = payload.mode_multi_spy && players.length >= 7;
+    const multiSpyOn = payload.mode_multi_spy && players.length >= 4;
     payload = {
       ...payload,
-      spy_count: multiSpyOn ? (players.length >= 11 ? 3 : 2) : 1,
+      spy_count: multiSpyOn ? (players.length >= 5 ? 3 : 2) : 1,
     };
 
     try {

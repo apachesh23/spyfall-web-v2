@@ -82,7 +82,6 @@ export function MatchSpyGuessVoteOverlay({
               guessText={guessText}
               yesCount={yesCount}
               noCount={noCount}
-              eligibleCount={eligibleIds.length}
               myVote={myVote}
               isSpy={isSpyGuesser}
               spectator={spectator}

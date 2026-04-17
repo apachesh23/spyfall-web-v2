@@ -62,9 +62,19 @@ export type SplashScreenProps = {
   /** Только победные сплэши: ведущий завершает матч и возвращает всех в лобби. */
   onVictoryHostEndGame?: () => void;
   victoryEndGameBusy?: boolean;
-  players?: Array<{ id: string; nickname: string; avatar_id: AvatarId }>;
+  players?: Array<{
+    id: string;
+    nickname: string;
+    avatar_id: AvatarId;
+    is_spy?: boolean;
+    eliminated?: boolean;
+  }>;
   spyIds?: string[];
+  /** Для game_over_spy_win: конкретный шпион, который угадал локацию. */
+  guessedSpyId?: string;
   eliminatedPlayer?: { nickname: string; avatar_id: AvatarId; role?: string | null };
   eliminatedWasSpy?: boolean;
   eliminatedVotePercent?: number;
+  /** Сколько шпионов было в ростере при старте матча — варианты текста победы мирных (2–3). */
+  initialSpyCount?: number;
 };
