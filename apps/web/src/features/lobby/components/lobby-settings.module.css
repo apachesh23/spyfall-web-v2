@@ -32,18 +32,6 @@
   justify-content: center;
 }
 
-/* Статичная плашка для мобилки/планшета: на всю ширину перед всеми режимами */
-.cursorTooltipStatic {
-  grid-column: 1 / -1;
-  margin-bottom: 8px;
-  padding: 8px 12px;
-  border-radius: 0.6em;
-  font-size: 12px;
-  font-weight: 500;
-  color: #f7c431;
-  text-align: center;
-}
-
 /* --- Карточка с инпутом (Время, Кол-во шпионов) --- */
 .cardInput {
   display: flex;

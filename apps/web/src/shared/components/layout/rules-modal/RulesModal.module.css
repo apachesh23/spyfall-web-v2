@@ -780,3 +780,10 @@
     grid-column: span 2;
   }
 }
+
+
+/* Добавьте это в RulesModal.module.css */
+.modesNote + .modesTitle,
+.modesList + .modesTitle {
+  margin-top: 18px; /* Чуть больше для визуального разделения крупных блоков */
+}

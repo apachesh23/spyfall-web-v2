@@ -43,7 +43,7 @@ const RULE_TABS: RuleTab[] = [
   {
     id: "spy",
     label: "🕵️ Шпион",
-    description: "Шпион не знает локацию, но может попытаться угадать ее 1 раз за игру.",
+    description: "Шпион не знает локацию, но может попытаться угадать ее 2 раза за игру. С паузой между попытками 3 минуты.",
     points: [],
   },
   {
@@ -179,7 +179,9 @@ export function RulesModal({ open, onClose }: RulesModalProps) {
                   </div>
                 ) : activeTab.id === "spy" ? (
                   <div className={styles.spyContent}>
-                    <p className={styles.tabDescription}>{activeTab.description}</p>
+                    <p className={styles.tabDescription}>
+                      Шпион не знает локацию, но может попытаться угадать ее <span className={styles.votingChip}>2 раза</span> за игру. С паузой между попытками <span className={styles.votingChip}>3 минуты</span>.
+                    </p>
 
                     <p className={styles.spyLead}>Попытка шпиона</p>
                     <div className={styles.spyPreviewWrap}>
@@ -381,6 +383,31 @@ export function RulesModal({ open, onClose }: RulesModalProps) {
                     <p className={styles.modesNote}>
                       Всего две попытки за партию — в любом сочетании угадываний и устранений.
                     </p>
+
+                    <h3 className={styles.modesTitle}>Сеть шпионов</h3>
+                    <p className={styles.modesText}>
+                      Чем больше игроков — тем больше шпионов.
+                    </p>
+                    <ul className={styles.modesList}>
+                      <li>
+                        <span className={styles.modesChip}>7–10 игроков</span> — 2 шпиона
+                      </li>
+                      <li>
+                        <span className={styles.modesChip}>11+ игроков</span> — 3 шпиона
+                      </li>
+                    </ul>
+                    <p className={styles.modesNote}>
+                      Каждый шпион действует осторожно — только 1 попытка угадать локацию.
+                    </p>
+
+                    <h3 className={styles.modesTitle}>Шпионский хаос</h3>
+                    <p className={styles.modesText}>
+                      Дополнение к режиму «Сеть шпионов». Количество шпионов выбирается по тем же правилам, но полностью скрыто от игроков.
+                    </p>
+                    <ul className={styles.modesList}>
+                      <li>Роли не раскрываются до конца игры</li>
+                      <li>Любые подсказки о количестве шпионов отсутствуют</li>
+                    </ul>
                   </div>
                 ) : (
                   <>

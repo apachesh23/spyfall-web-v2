@@ -11,6 +11,7 @@ import { useLobbyUiReady } from "@/features/lobby/contexts/LobbyUiReadyContext";
 import { useReactions } from "@/features/reactions/context";
 import { FooterBar } from "@/shared/components/layout/footer-bar/FooterBar";
 import { LobbyInviteBlock } from "@/features/lobby/components/LobbyInviteBlock";
+import { LobbyStartCountdownOverlay } from "@/features/lobby/components/LobbyStartCountdownOverlay/LobbyStartCountdownOverlay";
 import { LobbySettings } from "@/features/lobby/components/LobbySettings";
 import { PlayerList } from "@/features/player";
 import {
@@ -23,6 +24,7 @@ import { FullscreenLoader } from "@/shared/components/layout/route-loader/Fullsc
 import { useRouteLoaderStore } from "@/store/route-loader-store";
 import { supabase } from "@/lib/supabase/client";
 import { normalizeRoomSettings } from "@/lib/normalizeRoomSettings";
+import { isMultiSpyNetworkSelectable, multiSpyCountForPlayerCount } from "@spyfall/shared";
 import { IconTrash } from "@tabler/icons-react";
 import styles from "@/features/lobby/lobby-screen.module.css";
 
@@ -56,6 +58,8 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [closeRoomConfirmOpen, setCloseRoomConfirmOpen] = useState(false);
   const [kickConfirmPlayerId, setKickConfirmPlayerId] = useState<string | null>(null);
+  /** Полноэкранный отсчёт 3–2–1–GO перед переходом в матч (все клиенты при `roomStatus === playing`). */
+  const [lobbyStartCountdownOpen, setLobbyStartCountdownOpen] = useState(false);
   const router = useRouter();
   const stopGlobalLoader = useRouteLoaderStore((s) => s.stop);
   const startGlobalLoader = useRouteLoaderStore((s) => s.start);
@@ -68,11 +72,15 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
   useEffect(() => {
     if (loading || error || !roomStatus) return;
     if (roomStatus === "playing") {
-      const q = settings?.match_debug === true ? "?matchDebug=1" : "";
-      startGlobalLoader();
-      router.replace(`/play/${code}${q}`);
+      setLobbyStartCountdownOpen(true);
     }
-  }, [loading, error, roomStatus, code, router, settings?.match_debug, startGlobalLoader]);
+  }, [loading, error, roomStatus]);
+
+  const handleLobbyStartCountdownComplete = useCallback(() => {
+    const q = settings?.match_debug === true ? "?matchDebug=1" : "";
+    startGlobalLoader();
+    router.replace(`/play/${code}${q}`);
+  }, [settings?.match_debug, code, router, startGlobalLoader]);
 
   /** Подстраховка к Realtime: иногда клиент не получает UPDATE по `rooms` и остаётся в лобби при уже `playing` в БД. */
   useEffect(() => {
@@ -188,10 +196,10 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
     let payload = settingsToSave ?? settings;
     if (!payload) return false;
 
-    const multiSpyOn = payload.mode_multi_spy && players.length >= 4;
+    const multiSpyOn = payload.mode_multi_spy && isMultiSpyNetworkSelectable(players.length);
     payload = {
       ...payload,
-      spy_count: multiSpyOn ? (players.length >= 5 ? 3 : 2) : 1,
+      spy_count: multiSpyOn ? multiSpyCountForPlayerCount(players.length) : 1,
     };
 
     try {
@@ -270,7 +278,7 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
     }
   }
 
-  async function startGame(opts?: { matchDebug?: boolean }) {
+  async function startGame() {
     if (!roomId || !currentPlayerId) return;
 
     if (players.length < 3) {
@@ -301,7 +309,6 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
         body: JSON.stringify({
           roomId,
           hostId: currentPlayerId,
-          matchDebug: opts?.matchDebug === true,
         }),
       });
 
@@ -342,17 +349,6 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
         }}
       >
         <div className={styles.pageWithFooter}>
-          {isHost ? (
-            <div style={{ margin: "0 0 0.35rem" }}>
-              <button
-                type="button"
-                disabled={startingGame || players.length < 3}
-                onClick={() => void startGame({ matchDebug: true })}
-              >
-                Старт с ?matchDebug=1
-              </button>
-            </div>
-          ) : null}
           <div className={styles.contentGrid}>
             <div className={styles.leftCol}>
               <div className={`glass ${styles.glassBlock}`}>
@@ -404,7 +400,7 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
                       soundClick="click"
                       soundHover="hover"
                     >
-                      {startingGame ? "КНОПКА НАЖАТА…" : "СТАРТ ИГРЫ"}
+                      {startingGame ? "Запускаю сервер..." : "СТАРТ ИГРЫ"}
                     </PrimaryButton>
                     <DangerButton
                       variant="icon"
@@ -432,19 +428,24 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
 
             <div className={styles.rightCol}>
               <div className={`glass ${styles.row1Right}`}>
-                <span className={styles.row1RightTitle}>
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="#747BFF"
-                    className={styles.row1RightIcon}
-                    aria-hidden
-                  >
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
-                  </svg>
-                  Режимы игры
-                </span>
+                <div className={styles.row1RightTitleWrap}>
+                  <span className={styles.row1RightTitle}>
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="#747BFF"
+                      className={styles.row1RightIcon}
+                      aria-hidden
+                    >
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
+                    </svg>
+                    Режимы
+                  </span>
+                  {!isHost && isLobbyMobile ? (
+                    <span className={styles.row1RightHint}>Доступ к настройкам ограничен</span>
+                  ) : null}
+                </div>
               </div>
               <div className={styles.modesWrap}>
                 {settings && (
@@ -496,6 +497,10 @@ export function LobbyScreen({ code }: LobbyScreenProps) {
         onConfirm={handleKickConfirm}
         soundClick="click"
         soundHover="hover"
+      />
+      <LobbyStartCountdownOverlay
+        open={lobbyStartCountdownOpen}
+        onComplete={handleLobbyStartCountdownComplete}
       />
     </>
   );

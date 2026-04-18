@@ -3,7 +3,12 @@
 import { createPortal } from "react-dom";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { IconFlagFilled, IconPlayerPause, IconPlayerPlay } from "@tabler/icons-react";
+import {
+  IconArrowsShuffle,
+  IconFlagFilled,
+  IconPlayerPause,
+  IconPlayerPlay,
+} from "@tabler/icons-react";
 import { playUI } from "@/lib/sound";
 import { ConfirmDialog } from "@/shared/components/ui/ConfirmDialog/ConfirmDialog";
 import styles from "./MatchGameHostButtons.module.css";
@@ -15,6 +20,9 @@ export type MatchGameHostButtonsProps = {
   onPause: () => void;
   onResume: () => void;
   onEndGame: () => void;
+  /** Случайный порядок карточек игроков (ведущий; синхронизируется через Colyseus). */
+  onShufflePlayerOrder?: () => void;
+  shuffleDisabled?: boolean;
   /** `fixed` — портал слева по центру; `footer` — в футере/оверлее без портала */
   layout?: "fixed" | "footer";
 };
@@ -26,6 +34,8 @@ export function MatchGameHostButtons({
   onPause,
   onResume,
   onEndGame,
+  onShufflePlayerOrder,
+  shuffleDisabled = false,
   layout: layoutProp = "fixed",
 }: MatchGameHostButtonsProps) {
   const [endGameDialogOpen, setEndGameDialogOpen] = useState(false);
@@ -73,6 +83,25 @@ export function MatchGameHostButtons({
             </AnimatePresence>
           </span>
         </motion.button>
+        {onShufflePlayerOrder ? (
+          <motion.button
+            type="button"
+            className={`${styles.iconButton} glass glass-hover`}
+            onClick={() => {
+              playUI("click");
+              onShufflePlayerOrder();
+            }}
+            onMouseEnter={() => playUI("hover")}
+            disabled={shuffleDisabled}
+            aria-label={shuffleDisabled ? "Перемешать порядок недоступно" : "Перемешать порядок игроков"}
+            whileTap={{ scale: 0.94 }}
+            transition={{ duration: 0.08 }}
+          >
+            <span className={styles.icon} aria-hidden>
+              <IconArrowsShuffle size={28} stroke={2} />
+            </span>
+          </motion.button>
+        ) : null}
         <motion.button
           type="button"
           className={`${styles.iconButton} ${styles.iconButtonEnd} glass glass-hover`}

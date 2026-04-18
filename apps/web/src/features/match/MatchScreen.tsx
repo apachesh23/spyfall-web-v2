@@ -127,6 +127,10 @@ export type GameStateJson = {
   spyDiscussActionsUnlockAt: number;
   initialSpyCount: number;
   voteFinalSpiesRemaining: number;
+  historyShareHash: string;
+  roomId: string;
+  /** Id игроков через `|`, порядок карточек в матче (сервер: лобби + shuffle ведущего). */
+  playerDisplayOrder: string;
 };
 
 function num(v: unknown): number {
@@ -309,6 +313,9 @@ function snapshotMatchState(room: Room): GameStateJson | null {
   let spyDiscussActionsUnlockAt = 0;
   let initialSpyCount = 1;
   let voteFinalSpiesRemaining = 0;
+  let historyShareHash = "";
+  let roomId = "";
+  let playerDisplayOrder = "";
 
   if (!matchEndsAt) matchEndsAt = num(loose._matchEndsAt);
   if (typeof loose._phase === "string" && loose._phase) phase = loose._phase;
@@ -396,6 +403,12 @@ function snapshotMatchState(room: Room): GameStateJson | null {
         Math.min(3, num(j.initialSpyCount ?? j.initial_spy_count) || 1),
       );
       voteFinalSpiesRemaining = num(j.voteFinalSpiesRemaining ?? j.vote_final_spies_remaining);
+      if (typeof j.historyShareHash === "string") historyShareHash = j.historyShareHash;
+      else if (typeof j.history_share_hash === "string") historyShareHash = j.history_share_hash;
+      if (typeof j.roomId === "string") roomId = j.roomId;
+      else if (typeof j.room_id === "string") roomId = j.room_id;
+      if (typeof j.playerDisplayOrder === "string") playerDisplayOrder = j.playerDisplayOrder;
+      else if (typeof j.player_display_order === "string") playerDisplayOrder = j.player_display_order;
     } catch {
       /* ignore */
     }
@@ -437,6 +450,9 @@ function snapshotMatchState(room: Room): GameStateJson | null {
       Math.min(3, pickNum("initialSpyCount", initialSpyCount) || 1),
     );
     voteFinalSpiesRemaining = pickNum("voteFinalSpiesRemaining", voteFinalSpiesRemaining);
+    historyShareHash = pickStr("historyShareHash", historyShareHash);
+    roomId = pickStr("roomId", roomId);
+    playerDisplayOrder = pickStr("playerDisplayOrder", playerDisplayOrder);
 
     type SpyGuessBallotsRoot = {
       forEach?: (cb: (v: unknown, k: string) => void) => void;
@@ -514,6 +530,9 @@ function snapshotMatchState(room: Room): GameStateJson | null {
     spyDiscussActionsUnlockAt,
     initialSpyCount,
     voteFinalSpiesRemaining,
+    historyShareHash,
+    roomId,
+    playerDisplayOrder,
   };
 }
 
@@ -584,10 +603,30 @@ function formatClock(totalSec: number): string {
   return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 }
 
+function orderMatchPlayersForDisplay(rows: MatchPlayerJson[], orderPipe: string): MatchPlayerJson[] {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const t = orderPipe.trim();
+  if (!t) {
+    return [...rows].sort((a, b) => a.nickname.localeCompare(b.nickname, "ru"));
+  }
+  const ordered: MatchPlayerJson[] = [];
+  const seen = new Set<string>();
+  for (const id of t.split("|")) {
+    if (!id) continue;
+    const p = byId.get(id);
+    if (p) {
+      ordered.push(p);
+      seen.add(id);
+    }
+  }
+  for (const r of rows) {
+    if (!seen.has(r.id)) ordered.push(r);
+  }
+  return ordered;
+}
+
 function toLobbyPlayers(rows: MatchPlayerJson[], roomId: string): GamePlayer[] {
-  return [...rows]
-    .sort((a, b) => a.nickname.localeCompare(b.nickname))
-    .map((p) => ({
+  return rows.map((p) => ({
       id: p.id,
       nickname: p.nickname,
       avatar_id: Math.min(16, Math.max(1, p.avatarId)) as AvatarId,
@@ -686,6 +725,8 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
   const [connectErrorDetail, setConnectErrorDetail] = useState<string | null>(null);
   const [pong, setPong] = useState<string | null>(null);
   const [stateJson, setStateJson] = useState<GameStateJson | null>(null);
+  /** Актуальное состояние матча для realtime без устаревшего замыкания (historyShareHash при status→waiting). */
+  const stateJsonRef = useRef<GameStateJson | null>(null);
   const [clockSkewMs, setClockSkewMs] = useState(0);
   /** Только чтобы форсировать ре-рендер после exit голосования (ref сам по себе не триггерит paint). */
   const [, bumpEliminationSplashAfterVoteExit] = useReducer((n: number) => n + 1, 0);
@@ -706,6 +747,10 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
   const [joinIdentityReady, setJoinIdentityReady] = useState(false);
   /** Дублирует тему/роль с сервера отдельным сообщением (обход проблем декода Schema). */
   const [assignmentPatch, setAssignmentPatch] = useState<MatchAssignmentPayload | null>(null);
+
+  useEffect(() => {
+    stateJsonRef.current = stateJson;
+  }, [stateJson]);
   type LocationDevState =
     | { status: "idle" }
     | { status: "loading" }
@@ -743,10 +788,12 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
   const isMatchHost = !!playBundle && !!lobbyPlayerId && lobbyPlayerId === playBundle.hostId;
 
   const reactions = useReactions();
+  const [matchOnlinePlayers, setMatchOnlinePlayers] = useState<Set<string>>(() => new Set());
   const { sendReaction } = useMatchReactionsChannel({
     roomId: playBundle?.dbRoomId ?? null,
     playerId: lobbyPlayerId,
     onReaction: (payload) => reactions?.addReaction(payload),
+    setOnlinePlayers: setMatchOnlinePlayers,
   });
 
   const sendReactionRef = useRef(sendReaction);
@@ -1043,13 +1090,15 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
         setEndMatchError(data.error ?? "Не удалось завершить матч");
+        return;
       }
+      router.replace(`/lobby/${sessionId}`);
     } catch {
       setEndMatchError("Сеть или сервер недоступны");
     } finally {
       setEndMatchBusy(false);
     }
-  }, [dbRoomId, lobbyPlayerId]);
+  }, [dbRoomId, lobbyPlayerId, router, sessionId]);
 
   useEffect(() => {
     if (!playBundle || !joinIdentityReady || !lobbyPlayerId) return;
@@ -1283,9 +1332,20 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     }
   }, [dbRoomId, lobbyPlayerId]);
 
+  const shufflePlayerOrder = useCallback(() => {
+    colyseusRoomRef.current?.send(WS_CLIENT_MESSAGE.hostShufflePlayerOrder, {});
+  }, []);
+
   const playerRows = stateJson ? Object.values(stateJson.players) : [];
-  const listPlayers = stateJson && dbRoomId ? toLobbyPlayers(playerRows, dbRoomId) : [];
-  const onlineIds = new Set(playerRows.map((p) => p.id));
+  const listPlayers =
+    stateJson && dbRoomId
+      ? toLobbyPlayers(
+          orderMatchPlayersForDisplay(playerRows, stateJson.playerDisplayOrder ?? ""),
+          dbRoomId,
+        )
+      : [];
+  /** Realtime presence (`useMatchReactionsChannel`), как в лобби — не «все из Colyseus = онлайн». */
+  const onlineIds = matchOnlinePlayers;
   const me = stateJson?.players[effectivePlayerId] ?? null;
   const isMobile = useMediaQuery("(max-width: 1270px)");
 
@@ -1738,6 +1798,9 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     showSpyGuessVoteOverlay ||
     showSpyGuessCinematic;
 
+  const hostShuffleDisabled =
+    !stateJson || Object.keys(stateJson.players).length < 2 || hostPauseDisabled;
+
   const hostAside =
     isMatchHost && !isMobile ? (
       <MatchGameHostButtons
@@ -1748,6 +1811,8 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
         onPause={pauseMatch}
         onResume={resumeMatch}
         onEndGame={() => void endMatch()}
+        onShufflePlayerOrder={shufflePlayerOrder}
+        shuffleDisabled={hostShuffleDisabled}
       />
     ) : null;
 
@@ -1766,6 +1831,8 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
             onPause={pauseMatch}
             onResume={resumeMatch}
             onEndGame={() => void endMatch()}
+            onShufflePlayerOrder={shufflePlayerOrder}
+            shuffleDisabled={hostShuffleDisabled}
           />
         ) : null
       }
@@ -1925,6 +1992,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
           players={stateJson.players}
           clockSkewMs={clockSkewMs}
           initialSpyCount={stateJson.initialSpyCount}
+          modeSpyChaos={lobbyModes?.mode_spy_chaos === true}
           isMatchHost={isMatchHost}
           onVictoryHostEndGame={endMatch}
           victoryEndGameBusy={endMatchBusy}
@@ -1948,6 +2016,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
           {...matchVotingFrozenRef.current}
           currentPlayerId={effectivePlayerId}
           clockSkewMs={clockSkewMs}
+          modeSpyChaos={lobbyModes?.mode_spy_chaos === true}
         />
       ) : null}
       <DebugPanelDev

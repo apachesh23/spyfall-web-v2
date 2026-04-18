@@ -41,6 +41,8 @@ export type MatchColyseusSplashLayerProps = {
   clockSkewMs: number;
   /** Из state комнаты; для победы мирных — подпись при 2–3 шпионах в игре. */
   initialSpyCount?: number;
+  /** Из лобби: скрывать роль на сплэше изгнания только в режиме «Шпионский хаос». */
+  modeSpyChaos?: boolean;
   isMatchHost?: boolean;
   onVictoryHostEndGame?: () => void;
   victoryEndGameBusy?: boolean;
@@ -61,6 +63,7 @@ export function MatchColyseusSplashLayer({
   players,
   clockSkewMs,
   initialSpyCount,
+  modeSpyChaos = false,
   isMatchHost = false,
   onVictoryHostEndGame,
   victoryEndGameBusy = false,
@@ -136,6 +139,7 @@ export function MatchColyseusSplashLayer({
           }
           victoryEndGameBusy={victoryEndGameBusy}
           initialSpyCount={initialSpyCount}
+          modeSpyChaos={modeSpyChaos}
         />
       </motion.div>
     </AnimatePresence>

@@ -226,13 +226,36 @@
   }
 }
 
+.row1RightTitleWrap {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+
 .row1RightTitle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
   font-size: clamp(14px, 2.5vw, 16px);
   color: rgba(255, 255, 255, 0.95);
   margin: 0;
+}
+
+.row1RightHint {
+  font-size: clamp(10px, 2.6vw, 12px);
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #f0a82e;
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .row1RightIcon {

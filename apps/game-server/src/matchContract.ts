@@ -26,6 +26,7 @@ export const WS_CLIENT_MESSAGE = {
   /** Мирный (не тот шпион что угадывает): `{ vote: "yes" | "no" }` во время подтверждения. */
   spyGuessVoteCast: "spyGuessVoteCast",
   spyKillSubmit: "spyKillSubmit",
+  hostShufflePlayerOrder: "hostShufflePlayerOrder",
 } as const;
 
 export const WS_SERVER_MESSAGE = {

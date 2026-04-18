@@ -41,6 +41,10 @@ export class GameState extends Schema {
   /** Ведущий поставил паузу — таймер обсуждения не истекает, при resume дедлайн сдвигается. */
   declare matchPaused: boolean;
   declare matchSessionId: string;
+  /** Публичный id страницы итогов матча. */
+  declare historyShareHash: string;
+  /** UUID комнаты в БД (привязка match_history). */
+  declare roomId: string;
   /** Локация для мирных (шпион на клиенте не показывает). */
   declare locationName: string;
   /** Ключ картинки из БД (`image_key`) — клиент строит URL. */
@@ -110,6 +114,8 @@ export class GameState extends Schema {
 
   declare initialSpyCount: number;
   declare voteFinalSpiesRemaining: number;
+  /** Порядок отображения игроков в UI: id через `|`. Задаётся при старте (рандом) и по кнопке ведущего. */
+  declare playerDisplayOrder: string;
 
   constructor() {
     super();
@@ -151,6 +157,9 @@ export class GameState extends Schema {
     this.spyDiscussActionsUnlockAt = 0;
     this.initialSpyCount = 1;
     this.voteFinalSpiesRemaining = 0;
+    this.playerDisplayOrder = "";
+    this.historyShareHash = "";
+    this.roomId = "";
   }
 }
 defineTypes(GameState, {
@@ -158,6 +167,8 @@ defineTypes(GameState, {
   matchEndsAt: "number",
   matchPaused: "boolean",
   matchSessionId: "string",
+  historyShareHash: "string",
+  roomId: "string",
   locationName: "string",
   locationImageKey: "string",
   themeText: "string",
@@ -200,4 +211,5 @@ defineTypes(GameState, {
   spyDiscussActionsUnlockAt: "number",
   initialSpyCount: "number",
   voteFinalSpiesRemaining: "number",
+  playerDisplayOrder: "string",
 });

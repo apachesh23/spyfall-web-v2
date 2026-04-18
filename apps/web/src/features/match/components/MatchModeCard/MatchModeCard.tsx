@@ -25,6 +25,12 @@ const VARIANT_CONFIG = {
     desc: "Вживайся в роль на локации",
     emptyText: "Без роли",
   },
+  operationTime: {
+    label: "ВРЕМЯ ОПЕРАЦИИ",
+    lottie: "/lottie/timer.json",
+    desc: "Фактическое время обсуждения за партию",
+    emptyText: "—",
+  },
 } as const;
 
 export type MatchModeCardVariant = keyof typeof VARIANT_CONFIG;
@@ -33,11 +39,12 @@ type MatchModeCardProps = {
   variant: MatchModeCardVariant;
   value: string;
   noGlass?: boolean;
+  className?: string;
 };
 
 const transition = { duration: 0.3, ease: [0.4, 0, 0.2, 1] as const };
 
-export function MatchModeCard({ variant, value, noGlass }: MatchModeCardProps) {
+export function MatchModeCard({ variant, value, noGlass, className }: MatchModeCardProps) {
   const [hovered, setHovered] = useState(false);
   const [isTouch, setIsTouch] = useState(false);
 
@@ -57,7 +64,7 @@ export function MatchModeCard({ variant, value, noGlass }: MatchModeCardProps) {
 
   return (
     <div
-      className={`${noGlass ? "" : "glass glass-hover"} ${styles.card} ${noGlass ? styles.cardFill : ""} ${isSemiTransparent ? styles.cardEmpty : ""}`}
+      className={`${noGlass ? "" : "glass glass-hover"} ${styles.card} ${noGlass ? styles.cardFill : ""} ${isSemiTransparent ? styles.cardEmpty : ""} ${className ?? ""}`.trim()}
       onMouseEnter={() => {
         if (isTouch) return;
         setHovered(true);

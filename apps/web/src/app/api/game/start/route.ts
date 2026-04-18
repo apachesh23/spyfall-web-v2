@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { COLYSEUS_ROOM_NAME } from "@spyfall/shared";
 import {
@@ -101,10 +102,14 @@ export async function POST(request: Request) {
       image_key: rawLoc.image_key,
     };
 
+    const historyShareHash = randomUUID();
+
     let matchPayload: ReturnType<typeof buildMatchRoomOptions>;
     try {
       matchPayload = buildMatchRoomOptions(
+        String(room.id),
         String(room.code).trim(),
+        historyShareHash,
         discussionDurationMs,
         players,
         location,

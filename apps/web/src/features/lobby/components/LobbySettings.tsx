@@ -6,6 +6,7 @@ import { LottieIcon } from "@/lib/lottie";
 import type { Settings } from "@/types";
 import { useIsLobbyMobile } from "@/features/lobby/hooks/useIsLobbyMobile";
 import { playUI } from "@/lib/sound";
+import { isMultiSpyNetworkSelectable, multiSpyCountForPlayerCount } from "@spyfall/shared";
 import styles from "./lobby-settings.module.css";
 
 type LobbySettingsProps = {
@@ -15,10 +16,10 @@ type LobbySettingsProps = {
   playerCount: number;
 };
 
-/** Тест-порог: <4 = 1 шпион, 4 = 2 шпиона, 5+ = 3 шпиона (только с multi). */
+/** С «Сетью шпионов»: см. `multiSpyCountForPlayerCount` (в лобби режим включают только при ≥7 игроков). */
 function getEffectiveSpyCount(modeMultiSpy: boolean, playerCount: number): number {
-  if (!modeMultiSpy || playerCount < 4) return 1;
-  return playerCount >= 5 ? 3 : 2;
+  if (!modeMultiSpy) return 1;
+  return multiSpyCountForPlayerCount(playerCount);
 }
 
 const MODE_CARDS: Array<{
@@ -27,7 +28,7 @@ const MODE_CARDS: Array<{
   title: string;
   desc: string;
 }> = [
-  { key: 'mode_multi_spy', lottie: '/lottie/shadow_alliance.json', title: 'Сеть шпионов', desc: 'ТЕСТ: 4 игрока — 2 шпиона, 5+ — 3 шпиона' },
+  { key: 'mode_multi_spy', lottie: '/lottie/shadow_alliance.json', title: 'Сеть шпионов', desc: '7–10 игроков — 2 шпиона, 11+ — 3 шпиона (4–6 — один)' },
   { key: 'mode_theme', lottie: '/lottie/theme-location.json', title: 'Тема локации', desc: 'Будет известна тема локации' },
   { key: 'mode_roles', lottie: '/lottie/role-location.json', title: 'Роли локации', desc: 'Добавить РП роли всем игрокам' },
   { key: 'mode_hidden_threat', lottie: '/lottie/hidden_threat.json', title: 'Скрытая угроза', desc: 'Шпион: «Назвать локацию» и «Устранить» — всего 2 действия за игру (5+ в лобби; в матче кнопки при ≥4 живых)' },
@@ -48,8 +49,12 @@ export function LobbySettings({ settings, onSettingsChange, isHost, playerCount 
     String(settings.vote_duration),
   );
   const lastUpdateFromParent = useRef(JSON.stringify(settings));
+  const localSettingsRef = useRef(localSettings);
+  localSettingsRef.current = localSettings;
+  const onSettingsChangeRef = useRef(onSettingsChange);
+  onSettingsChangeRef.current = onSettingsChange;
 
-  const multiSpyAvailable = playerCount >= 4;
+  const multiSpyAvailable = isMultiSpyNetworkSelectable(playerCount);
   const effectiveMultiSpy = localSettings.mode_multi_spy && multiSpyAvailable;
   const effectiveSpyCount = useMemo(
     () => getEffectiveSpyCount(localSettings.mode_multi_spy, playerCount),
@@ -77,6 +82,16 @@ export function LobbySettings({ settings, onSettingsChange, isHost, playerCount 
 
   useEffect(() => {
     if (!isHost) return;
+    if (isMultiSpyNetworkSelectable(playerCount)) return;
+    const s = localSettingsRef.current;
+    if (!s.mode_multi_spy && !s.mode_spy_chaos) return;
+    const next = { ...s, mode_multi_spy: false, mode_spy_chaos: false, spy_count: 1 };
+    setLocalSettings(next);
+    onSettingsChangeRef.current(next);
+  }, [isHost, playerCount]);
+
+  useEffect(() => {
+    if (!isHost) return;
     if (!localSettings.mode_hidden_threat) return;
     if (hiddenThreatAvailable) return;
     const newSettings = { ...localSettings, mode_hidden_threat: false };
@@ -91,7 +106,7 @@ export function LobbySettings({ settings, onSettingsChange, isHost, playerCount 
     if (key === 'mode_multi_spy') {
       if (value) {
         if (!multiSpyAvailable) return;
-        newSettings.spy_count = playerCount >= 5 ? 3 : 2;
+        newSettings.spy_count = multiSpyCountForPlayerCount(playerCount);
         newSettings.mode_hidden_threat = false;
       } else {
         newSettings.spy_count = 1;
@@ -159,12 +174,6 @@ export function LobbySettings({ settings, onSettingsChange, isHost, playerCount 
           </motion.div>
         )}
       </AnimatePresence>
-
-      {!isHost && isLobbyMobile && (
-        <div className={`glass ${styles.cursorTooltipStatic}`}>
-          Только ведущий может менять настройки
-        </div>
-      )}
 
       <div
         className={`glass ${styles.cardInput} ${!isHost ? styles.cardDisabled : ''}`}

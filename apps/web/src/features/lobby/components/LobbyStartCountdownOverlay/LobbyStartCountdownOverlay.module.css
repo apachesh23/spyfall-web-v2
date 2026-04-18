@@ -1,0 +1,58 @@
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 4, 10, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  pointer-events: auto;
+}
+
+/* Лёгкое свечение по краям */
+.root::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 70% 50% at 50% 45%, rgba(247, 196, 49, 0.08) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+.stage {
+  position: relative;
+  width: min(92vw, 640px);
+  min-height: min(48vh, 360px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.glyph {
+  position: absolute; /* <-- Меняем relative на absolute */
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+  background: linear-gradient(180deg, #fff 0%, rgba(255, 255, 255, 0.88) 45%, #f7c431 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 32px rgba(247, 196, 49, 0.45)) drop-shadow(0 4px 24px rgba(0, 0, 0, 0.5));
+}
+
+.glyphDigit {
+  font-size: clamp(4.5rem, 28vw, 11rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.glyphGo {
+  font-size: clamp(3.25rem, 18vw, 7rem);
+  letter-spacing: 0.08em;
+  background: linear-gradient(180deg, #ffe566 0%, #f7a412 55%, #ff6b1a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}

@@ -1,3 +1,4 @@
+import { multiSpyCountForPlayerCount } from "@spyfall/shared";
 import { DEFAULT_AVATAR_ID, isValidAvatarId } from "@/lib/avatars";
 import type { Settings } from "@/types/room";
 
@@ -51,13 +52,17 @@ const SPY_CARDS = [
  * Готовит тело matchmake/create: ростер с ролями, локация, тема, таймер задаётся отдельно.
  */
 export function buildMatchRoomOptions(
+  roomId: string,
   matchSessionId: string,
+  historyShareHash: string,
   discussionDurationMs: number,
   players: DbPlayerRow[],
   location: DbLocationRow,
   settings: Settings,
 ): {
+  roomId: string;
   matchSessionId: string;
+  historyShareHash: string;
   discussionDurationMs: number;
   votingDurationMs: number;
   roster: MatchRosterRowJson[];
@@ -78,16 +83,14 @@ export function buildMatchRoomOptions(
   const n = list.length;
   let spyCount = 1;
   if (settings.mode_multi_spy) {
-    if (n >= 5) spyCount = 3;
-    else if (n >= 4) spyCount = 2;
-    else spyCount = 1;
+    spyCount = multiSpyCountForPlayerCount(n);
     if (settings.mode_spy_chaos) {
       spyCount = Math.floor(Math.random() * spyCount) + 1;
     }
   } else {
     spyCount = 1;
   }
-  /** Автоподбор количества шпионов (для тестовых порогов), плюс clamp к n−1. */
+  /** Автоподбор количества шпионов по числу игроков, плюс clamp к n−1. */
   spyCount = Math.min(spyCount, Math.max(1, n - 1));
 
   const shuffledIds = shuffle(list.map((p) => p.id));
@@ -131,7 +134,9 @@ export function buildMatchRoomOptions(
   });
 
   return {
+    roomId: roomId.trim(),
     matchSessionId,
+    historyShareHash: historyShareHash.trim(),
     discussionDurationMs,
     votingDurationMs,
     roster,

@@ -8,6 +8,7 @@ import { playUI } from "@/lib/sound";
 import { MatchVoteRoot } from "../MatchVoteRoot";
 import {
   MATCH_VOTING_COPY,
+  formatFinalSpiesToFindBanner,
   type MatchVotingCenterPhase,
   type VoteStripeVariant,
 } from "../voting.config";
@@ -42,6 +43,11 @@ export type MatchVotingOverlayProps = {
   voteIsFinal?: boolean;
   /** Живых шпионов на старте раунда (сервер); плашка только при финале и remaining > 0. */
   voteFinalSpiesRemaining?: number;
+  /**
+   * Режим «Шпионский хаос»: плашка над игроками — неоднозначная («Но сколько?»).
+   * Иначе — явное «Осталось найти N …» по `voteFinalSpiesRemaining`.
+   */
+  modeSpyChaos?: boolean;
 };
 
 const SKIP = "skip";
@@ -79,6 +85,7 @@ export function MatchVotingOverlay({
   clockSkewMs,
   voteIsFinal = false,
   voteFinalSpiesRemaining = 0,
+  modeSpyChaos = false,
 }: MatchVotingOverlayProps) {
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
 
@@ -150,8 +157,12 @@ export function MatchVotingOverlay({
 
   const voteStripeVariant: VoteStripeVariant = voteIsFinal ? "final" : "regular";
 
-  const finalSpiesBanner =
-    voteIsFinal && voteFinalSpiesRemaining > 0 ? MATCH_VOTING_COPY.finalSpiesStatusBanner : null;
+  const finalSpiesBanner = (() => {
+    if (!voteIsFinal || voteFinalSpiesRemaining <= 0) return null;
+    return modeSpyChaos
+      ? MATCH_VOTING_COPY.finalSpiesStatusBanner
+      : formatFinalSpiesToFindBanner(voteFinalSpiesRemaining);
+  })();
 
   const content = (() => {
     if (centerPhase === "no_vote" || centerPhase === "revote_candidates") {

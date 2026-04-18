@@ -11,7 +11,9 @@
   "dependencies": {
     "@colyseus/core": "^0.15.57",
     "@colyseus/schema": "2.0.37",
+    "@supabase/supabase-js": "^2.49.1",
     "colyseus": "^0.15.57",
+    "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "fuzzball": "^2.2.3"
   },

@@ -2,8 +2,11 @@ import { createServer } from "node:http";
 import express from "express";
 import "colyseus";
 import { Server } from "@colyseus/core";
+import { loadGameServerEnv } from "./loadEnv.js";
 import { COLYSEUS_ROOM_NAME } from "./matchContract.js";
 import { SpyfallRoom } from "./rooms/SpyfallRoom.js";
+
+loadGameServerEnv();
 
 const port = Number(process.env.PORT ?? 2567);
 

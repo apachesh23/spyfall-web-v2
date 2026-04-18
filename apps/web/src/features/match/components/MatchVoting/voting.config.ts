@@ -453,9 +453,23 @@ export const MATCH_VOTING_COPY = {
   countdown: "ОСТАЛОСЬ...",
   /** Подпись на нижней полоске (subtitle) в фазе кандидатов на повторное. */
   revoteSubtitleLabel: "НА 2 РАУНД...",
-  /** Финальное голосование: без раскрытия точного числа оставшихся шпионов. */
+  /** Финальное голосование при «Шпионском хаосе»: неизвестно, сколько шпионов было в начале. */
   finalSpiesStatusBanner: "Шпионы всё ещё среди нас. Но сколько?",
 } as const;
+
+/** Склонение «N шпион(а/ов)» для плашки над списком игроков. */
+export function spyCountWordRu(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return "шпион";
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "шпиона";
+  return "шпионов";
+}
+
+/** Финальное голосование при известном числе шпионов в ростере (без «хаоса»). */
+export function formatFinalSpiesToFindBanner(remaining: number): string {
+  return `Осталось найти ${remaining} ${spyCountWordRu(remaining)}`;
+}
 
 export type VoteStripeVariant = "regular" | "final";
 

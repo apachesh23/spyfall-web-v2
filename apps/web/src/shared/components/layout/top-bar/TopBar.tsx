@@ -43,6 +43,9 @@ const LOCALES = [
 ] as const;
 type LocaleCode = (typeof LOCALES)[number]['value'];
 
+/** Пока скрыть блок «Выберите язык» в меню TopBar (вернуть: true). */
+const SHOW_TOPBAR_LANGUAGE_BLOCK = false;
+
 export function TopBar() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [supportsFullscreen, setSupportsFullscreen] = useState(false);
@@ -526,71 +529,75 @@ export function TopBar() {
                   Правила игры
                 </GlassPanelButton>
 
-                <p className={styles.menuSectionTitle}>Выберите язык</p>
-                <div className={styles.menuLanguageWrap} ref={langDropdownRef}>
-                  <GlassPanelButton
-                    className={styles.menuLanguageTrigger}
-                    onClick={() => setLangDropdownOpen((o) => !o)}
-                    aria-expanded={langDropdownOpen}
-                    aria-haspopup="listbox"
-                    aria-label="Выберите язык"
-                  >
-                    <img
-                      src={LOCALES.find((l) => l.value === locale)?.icon}
-                      alt=""
-                      className={styles.menuLanguageIcon}
-                      width={28}
-                      height={28}
-                    />
-                    <span className={styles.menuLanguageLabel}>{LOCALES.find((l) => l.value === locale)?.label}</span>
-                    <span className={`${styles.menuLanguageChevron} ${langDropdownOpen ? styles.menuLanguageChevronOpen : ''}`} aria-hidden>
-                      <IconChevronDown size={18} stroke={2} />
-                    </span>
-                  </GlassPanelButton>
-                  {typeof document !== 'undefined' &&
-                    langDropdownOpen &&
-                    langDropdownRect &&
-                    createPortal(
-                      <AnimatePresence>
-                        <motion.div
-                          data-language-dropdown
-                          className={`glass ${styles.menuLanguageDropdown} ${styles.menuLanguageDropdownPortal}`}
-                          style={{
-                            position: 'fixed',
-                            left: langDropdownRect.left,
-                            width: langDropdownRect.width,
-                            zIndex: 130,
-                            ...(langDropdownRect.bottom != null
-                              ? { bottom: langDropdownRect.bottom, top: "auto" }
-                              : { top: langDropdownRect.top ?? 0, bottom: "auto" }),
-                          }}
-                          initial={{ opacity: 0, y: isMobile ? 6 : -4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: isMobile ? 6 : -4 }}
-                          transition={{ duration: 0.18 }}
-                          role="listbox"
-                        >
-                          {LOCALES.filter((item) => item.value !== locale).map((item) => (
-                            <GlassPanelButton
-                              key={item.value}
-                              role="option"
-                              size="sm"
-                              className={styles.menuLanguageOption}
-                              onClick={() => {
-                                setLocale(item.value);
-                                setLangDropdownOpen(false);
+                {SHOW_TOPBAR_LANGUAGE_BLOCK ? (
+                  <>
+                    <p className={styles.menuSectionTitle}>Выберите язык</p>
+                    <div className={styles.menuLanguageWrap} ref={langDropdownRef}>
+                      <GlassPanelButton
+                        className={styles.menuLanguageTrigger}
+                        onClick={() => setLangDropdownOpen((o) => !o)}
+                        aria-expanded={langDropdownOpen}
+                        aria-haspopup="listbox"
+                        aria-label="Выберите язык"
+                      >
+                        <img
+                          src={LOCALES.find((l) => l.value === locale)?.icon}
+                          alt=""
+                          className={styles.menuLanguageIcon}
+                          width={28}
+                          height={28}
+                        />
+                        <span className={styles.menuLanguageLabel}>{LOCALES.find((l) => l.value === locale)?.label}</span>
+                        <span className={`${styles.menuLanguageChevron} ${langDropdownOpen ? styles.menuLanguageChevronOpen : ''}`} aria-hidden>
+                          <IconChevronDown size={18} stroke={2} />
+                        </span>
+                      </GlassPanelButton>
+                      {typeof document !== 'undefined' &&
+                        langDropdownOpen &&
+                        langDropdownRect &&
+                        createPortal(
+                          <AnimatePresence>
+                            <motion.div
+                              data-language-dropdown
+                              className={`glass ${styles.menuLanguageDropdown} ${styles.menuLanguageDropdownPortal}`}
+                              style={{
+                                position: 'fixed',
+                                left: langDropdownRect.left,
+                                width: langDropdownRect.width,
+                                zIndex: 130,
+                                ...(langDropdownRect.bottom != null
+                                  ? { bottom: langDropdownRect.bottom, top: "auto" }
+                                  : { top: langDropdownRect.top ?? 0, bottom: "auto" }),
                               }}
-                              whileTap={{ scale: 0.98 }}
+                              initial={{ opacity: 0, y: isMobile ? 6 : -4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: isMobile ? 6 : -4 }}
+                              transition={{ duration: 0.18 }}
+                              role="listbox"
                             >
-                              <img src={item.icon} alt="" className={styles.menuLanguageOptionIcon} width={24} height={24} />
-                              <span>{item.label}</span>
-                            </GlassPanelButton>
-                          ))}
-                        </motion.div>
-                      </AnimatePresence>,
-                      document.body
-                    )}
-                </div>
+                              {LOCALES.filter((item) => item.value !== locale).map((item) => (
+                                <GlassPanelButton
+                                  key={item.value}
+                                  role="option"
+                                  size="sm"
+                                  className={styles.menuLanguageOption}
+                                  onClick={() => {
+                                    setLocale(item.value);
+                                    setLangDropdownOpen(false);
+                                  }}
+                                  whileTap={{ scale: 0.98 }}
+                                >
+                                  <img src={item.icon} alt="" className={styles.menuLanguageOptionIcon} width={24} height={24} />
+                                  <span>{item.label}</span>
+                                </GlassPanelButton>
+                              ))}
+                            </motion.div>
+                          </AnimatePresence>,
+                          document.body
+                        )}
+                    </div>
+                  </>
+                ) : null}
               </motion.div>
             )}
           </AnimatePresence>

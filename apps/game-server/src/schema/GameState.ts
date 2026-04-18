@@ -35,6 +35,10 @@ export class GameState extends Schema {
   declare matchEndsAt: number;
   declare matchPaused: boolean;
   declare matchSessionId: string;
+  /** UUID публичной ссылки на страницу итогов (генерируется при старте матча). */
+  declare historyShareHash: string;
+  /** UUID комнаты в Supabase (`rooms.id`), для записи match_history. */
+  declare roomId: string;
   declare locationName: string;
   declare locationImageKey: string;
   declare themeText: string;
@@ -86,6 +90,8 @@ export class GameState extends Schema {
   declare initialSpyCount: number;
   /** При финальном голосовании: живых шпионов на старте текущего раунда (плашка «Осталось N…»). */
   declare voteFinalSpiesRemaining: number;
+  /** Порядок карточек в матче: id через `|`. */
+  declare playerDisplayOrder: string;
 
   constructor() {
     super();
@@ -127,6 +133,9 @@ export class GameState extends Schema {
     this.spyDiscussActionsUnlockAt = 0;
     this.initialSpyCount = 1;
     this.voteFinalSpiesRemaining = 0;
+    this.playerDisplayOrder = "";
+    this.historyShareHash = "";
+    this.roomId = "";
   }
 }
 defineTypes(GameState, {
@@ -134,6 +143,8 @@ defineTypes(GameState, {
   matchEndsAt: "number",
   matchPaused: "boolean",
   matchSessionId: "string",
+  historyShareHash: "string",
+  roomId: "string",
   locationName: "string",
   locationImageKey: "string",
   themeText: "string",
@@ -176,4 +187,5 @@ defineTypes(GameState, {
   spyDiscussActionsUnlockAt: "number",
   initialSpyCount: "number",
   voteFinalSpiesRemaining: "number",
+  playerDisplayOrder: "string",
 });

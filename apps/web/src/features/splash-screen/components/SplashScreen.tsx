@@ -155,9 +155,10 @@ export function SplashScreen({
   spyIds,
   guessedSpyId,
   eliminatedPlayer,
-  eliminatedWasSpy: _eliminatedWasSpy,
+  eliminatedWasSpy,
   eliminatedVotePercent,
   initialSpyCount,
+  modeSpyChaos = false,
 }: SplashScreenProps) {
   const config = SPLASH_CONFIG[type];
   const content = SPLASH_CONTENT[type];
@@ -685,7 +686,11 @@ export function SplashScreen({
                               : type === 'game_over_spy_win'
                               ? 'УГАДАЛ'
                               : type === 'voting_kicked_civilian'
-                              ? 'ЗАСЕКРЕЧЕНО'
+                              ? modeSpyChaos
+                                ? 'ЗАСЕКРЕЧЕНО'
+                                : eliminatedWasSpy
+                                  ? 'ШПИОН'
+                                  : 'МИРНЫЙ'
                               : 'ШПИОН'}
                           </span>
                           {type === 'voting_kicked_civilian' && eliminatedVotePercent != null && (

@@ -7,6 +7,8 @@ export {
 
 export { SPY_KILL_FIRST_UNLOCK_MS, SPY_KILL_COOLDOWN_BETWEEN_MS } from "./spyKillTiming";
 
+export { isMultiSpyNetworkSelectable, multiSpyCountForPlayerCount } from "./spyNetworkCount";
+
 export const GAME_NAME = "Spyfall";
 
 /** Colyseus room name clients join after host starts a match */
@@ -54,6 +56,8 @@ export const WS_CLIENT_MESSAGE = {
   spyGuessVoteCast: "spyGuessVoteCast",
   /** Шпион в режиме «Скрытая угроза»: `{ targetId }` — жертва до сплэша. */
   spyKillSubmit: "spyKillSubmit",
+  /** Ведущий: новый случайный порядок карточек игроков в UI (Fisher–Yates от последнего индекса). */
+  hostShufflePlayerOrder: "hostShufflePlayerOrder",
 } as const;
 
 /** Server → client: тема/роли для карточки (дубль state, если декод Schema на клиенте глючит). */
