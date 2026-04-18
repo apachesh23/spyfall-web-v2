@@ -1,0 +1,15 @@
+# Контекст Docker для Fly / game-server (см. apps/game-server/fly.toml)
+.git
+**/.next
+**/node_modules
+**/dist
+*.log
+.env
+.env.*
+docs
+
+# Next.js не участвует в образе game-server — не тащим в демон лишние мегабайты
+apps/web/src
+apps/web/public
+apps/web/.next
+apps/web/node_modules
