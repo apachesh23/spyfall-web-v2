@@ -23,7 +23,8 @@ export const MATCH_COLYSEUS_SPLASH_TYPES = new Set<string>([
 
 const SPLASH_TYPES = MATCH_COLYSEUS_SPLASH_TYPES;
 
-const VICTORY_SPLASH_TYPES = new Set<string>([
+/** Победные итоговые сплэши — кнопка хоста «в итоги» и общий редирект не-хостов при завершении матча. */
+export const MATCH_VICTORY_SPLASH_TYPES = new Set<string>([
   "game_over_spy_win",
   "game_over_spy_win_voting",
   "game_over_civilians_win",
@@ -133,7 +134,7 @@ export function MatchColyseusSplashLayer({
             matchSplashType === "voting_kicked_civilian" ? matchSplashVotePercent : undefined
           }
           onVictoryHostEndGame={
-            isMatchHost && VICTORY_SPLASH_TYPES.has(matchSplashType)
+            isMatchHost && MATCH_VICTORY_SPLASH_TYPES.has(matchSplashType)
               ? onVictoryHostEndGame
               : undefined
           }

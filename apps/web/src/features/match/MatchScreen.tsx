@@ -47,6 +47,7 @@ import {
   DebugPanelDev,
   MatchColyseusSplashLayer,
   MATCH_COLYSEUS_SPLASH_TYPES,
+  MATCH_VICTORY_SPLASH_TYPES,
   MatchGameHostButtons,
   MatchHintQuestionButton,
   MatchPauseGrayscaleOverlay,
@@ -727,6 +728,11 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
   const [stateJson, setStateJson] = useState<GameStateJson | null>(null);
   /** Актуальное состояние матча для realtime без устаревшего замыкания (historyShareHash при status→waiting). */
   const stateJsonRef = useRef<GameStateJson | null>(null);
+  /** Пока хост завершает матч с победного сплэша и ждёт редиректа на /summary — не уводить в лобби по rooms.status=waiting (гонка с Realtime/поллингом). */
+  const skipWaitingLobbyRedirectRef = useRef(false);
+  /** Последний известный hash и тип сплэша — чтобы не-хосты ушли на /summary при том же завершении, что и хост (Colyseus может отвалиться раньше Supabase). */
+  const lastKnownHistoryShareHashRef = useRef<string | null>(null);
+  const lastMatchSplashTypeRef = useRef<string>("");
   const [clockSkewMs, setClockSkewMs] = useState(0);
   /** Только чтобы форсировать ре-рендер после exit голосования (ref сам по себе не триггерит paint). */
   const [, bumpEliminationSplashAfterVoteExit] = useReducer((n: number) => n + 1, 0);
@@ -750,6 +756,10 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
 
   useEffect(() => {
     stateJsonRef.current = stateJson;
+    const h = stateJson?.historyShareHash?.trim();
+    if (h) lastKnownHistoryShareHashRef.current = h;
+    const st = stateJson?.matchSplashType?.trim() ?? "";
+    if (st) lastMatchSplashTypeRef.current = st;
   }, [stateJson]);
   type LocationDevState =
     | { status: "idle" }
@@ -968,6 +978,18 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     router.replace(`/invite/${sessionId}`);
   }, [playBundle?.dbRoomId, lobbyPlayerId, sessionId, router]);
 
+  /** При завершении матча (rooms → waiting): хост с skip идёт отдельно; остальные — на /summary только после победного сплэша, иначе лобби. */
+  const navigateOnRoomWaiting = useCallback(() => {
+    if (skipWaitingLobbyRedirectRef.current) return;
+    const hash = lastKnownHistoryShareHashRef.current?.trim();
+    const splash = lastMatchSplashTypeRef.current;
+    if (hash && MATCH_VICTORY_SPLASH_TYPES.has(splash)) {
+      router.replace(`/summary/${encodeURIComponent(hash)}`);
+      return;
+    }
+    router.replace(`/lobby/${sessionId}`);
+  }, [router, sessionId]);
+
   useEffect(() => {
     if (!dbRoomId) return;
     const channel = supabase
@@ -986,7 +1008,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
             setMatchPauseFromRoom(parseMatchPause(next.settings));
           }
           if (next.status === "waiting") {
-            router.replace(`/lobby/${sessionId}`);
+            navigateOnRoomWaiting();
           }
         },
       )
@@ -994,7 +1016,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [dbRoomId, sessionId, router]);
+  }, [dbRoomId, navigateOnRoomWaiting]);
 
   /** Подстраховка к Realtime: редкий пропуск UPDATE при завершении матча (status → waiting). */
   useEffect(() => {
@@ -1009,7 +1031,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
           .maybeSingle();
         if (cancelled || error || !room) return;
         if (room.status === "waiting") {
-          router.replace(`/lobby/${sessionId}`);
+          navigateOnRoomWaiting();
           return;
         }
         if (room.settings != null) {
@@ -1021,7 +1043,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [dbRoomId, sessionId, router]);
+  }, [dbRoomId, sessionId, navigateOnRoomWaiting]);
 
   useEffect(() => {
     if (!readMatchDebug()) {
@@ -1076,29 +1098,61 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
     };
   }, [stateJson?.locationImageKey, stateJson?.locationName]);
 
-  const endMatch = useCallback(async () => {
-    const hostId = lobbyPlayerId;
-    if (!dbRoomId || !hostId) return;
-    setEndMatchError(null);
-    setEndMatchBusy(true);
-    try {
-      const res = await fetch("/api/game/end", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomId: dbRoomId, hostId }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setEndMatchError(data.error ?? "Не удалось завершить матч");
-        return;
+  /**
+   * Панель ведущего (пауза/флаг) во время игры → после /api/game/end только лобби.
+   * Победный сплэш → при наличии historyShareHash ведём на /summary/:hash, иначе лобби.
+   */
+  const endMatchWithRedirect = useCallback(
+    async (after: "lobby" | "summary") => {
+      const hostId = lobbyPlayerId;
+      if (!dbRoomId || !hostId) return;
+      const summaryHash =
+        after === "summary" ? stateJsonRef.current?.historyShareHash?.trim() : undefined;
+      const blockLobbyFromWaiting = Boolean(after === "summary" && summaryHash);
+      if (blockLobbyFromWaiting) {
+        skipWaitingLobbyRedirectRef.current = true;
       }
-      router.replace(`/lobby/${sessionId}`);
-    } catch {
-      setEndMatchError("Сеть или сервер недоступны");
-    } finally {
-      setEndMatchBusy(false);
-    }
-  }, [dbRoomId, lobbyPlayerId, router, sessionId]);
+      setEndMatchError(null);
+      setEndMatchBusy(true);
+      try {
+        const res = await fetch("/api/game/end", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomId: dbRoomId, hostId }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          if (blockLobbyFromWaiting) {
+            skipWaitingLobbyRedirectRef.current = false;
+          }
+          setEndMatchError(data.error ?? "Не удалось завершить матч");
+          return;
+        }
+        if (after === "summary" && summaryHash) {
+          router.replace(`/summary/${encodeURIComponent(summaryHash)}`);
+          return;
+        }
+        if (blockLobbyFromWaiting) {
+          skipWaitingLobbyRedirectRef.current = false;
+        }
+        router.replace(`/lobby/${sessionId}`);
+      } catch {
+        if (blockLobbyFromWaiting) {
+          skipWaitingLobbyRedirectRef.current = false;
+        }
+        setEndMatchError("Сеть или сервер недоступны");
+      } finally {
+        setEndMatchBusy(false);
+      }
+    },
+    [dbRoomId, lobbyPlayerId, router, sessionId],
+  );
+
+  const endMatch = useCallback(() => endMatchWithRedirect("lobby"), [endMatchWithRedirect]);
+  const endMatchFromVictorySplash = useCallback(
+    () => endMatchWithRedirect("summary"),
+    [endMatchWithRedirect],
+  );
 
   useEffect(() => {
     if (!playBundle || !joinIdentityReady || !lobbyPlayerId) return;
@@ -1994,7 +2048,7 @@ export function MatchScreen({ sessionId, colyseusUrl }: MatchScreenProps) {
           initialSpyCount={stateJson.initialSpyCount}
           modeSpyChaos={lobbyModes?.mode_spy_chaos === true}
           isMatchHost={isMatchHost}
-          onVictoryHostEndGame={endMatch}
+          onVictoryHostEndGame={endMatchFromVictorySplash}
           victoryEndGameBusy={endMatchBusy}
         />
       ) : null}
